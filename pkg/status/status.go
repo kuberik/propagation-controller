@@ -1,6 +1,7 @@
 package status
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
@@ -58,14 +59,22 @@ type Status struct {
 	Start   time.Time `json:"start,omitempty"`
 }
 
-func (c *StatusClient) PublishStatuses(deployment string, statuses []Status) error {
+func newStatusesImage(statuses []Status) (v1.Image, error) {
 	statusesJSON, err := json.Marshal(statuses)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	layer := static.NewLayer(statusesJSON, types.MediaType("application/json"))
 	image, err := mutate.AppendLayers(empty.Image, layer)
+	if err != nil {
+		return nil, err
+	}
+	return image, nil
+}
+
+func (c *StatusClient) PublishStatuses(deployment string, statuses []Status) error {
+	image, err := newStatusesImage(statuses)
 	if err != nil {
 		return err
 	}
@@ -74,4 +83,27 @@ func (c *StatusClient) PublishStatuses(deployment string, statuses []Status) err
 		return err
 	}
 	return nil
+}
+
+func extractStatuses(image v1.Image) ([]Status, error) {
+	var extracted bytes.Buffer
+	err := crane.Export(image, &extracted)
+	if err != nil {
+		return nil, err
+	}
+
+	result := []Status{}
+	err = json.Unmarshal(extracted.Bytes(), &result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *StatusClient) GetStatuses(deployment string) ([]Status, error) {
+	image, err := c.OCIClient.Pull(c.Repository.Tag(deployment).Name())
+	if err != nil {
+		return nil, err
+	}
+	return extractStatuses(image)
 }
