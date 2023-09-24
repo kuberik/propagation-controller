@@ -1,4 +1,4 @@
-module kuberik.io/propagation-controller
+module github.com/kuberik/propagation-controller
 
 go 1.20
 

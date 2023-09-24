@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	kuberikiov1alpha1 "kuberik.io/propagation-controller/api/v1alpha1"
+	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 )
 
 // PropagationReconciler reconciles a Propagation object
@@ -57,6 +57,6 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *PropagationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuberikiov1alpha1.Propagation{}).
+		For(&v1alpha1.Propagation{}).
 		Complete(r)
 }

@@ -2,4 +2,4 @@
 
 mkdir -p propagation-controller
 cd propagation-controller
-kubebuilder init --domain kuberik.io --repo kuberik.io/propagation-controller
+kubebuilder init --domain kuberik.io --repo github.com/kuberik/propagation-controller

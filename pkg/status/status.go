@@ -14,7 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/types"
 )
 
-//go:generate sh -c "$(go env GOPATH)/bin/mockgen -destination mock_ociclient_test.go -package status kuberik.io/propagation-controller/pkg/status OCIClient"
+//go:generate sh -c "$(go env GOPATH)/bin/mockgen -destination mock_ociclient_test.go -package status github.com/kuberik/propagation-controller/pkg/status OCIClient"
 type OCIClient interface {
 	Pull(string) (v1.Image, error)
 	Push(v1.Image, string) error

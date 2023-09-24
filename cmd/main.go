@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	kuberikiov1alpha1 "kuberik.io/propagation-controller/api/v1alpha1"
-	"kuberik.io/propagation-controller/internal/controller"
+	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -45,7 +45,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(kuberikiov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 

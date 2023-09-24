@@ -6,7 +6,7 @@ domain: kuberik.io
 layout:
 - go.kubebuilder.io/v4
 projectName: propagation-controller
-repo: kuberik.io/propagation-controller
+repo: github.com/kuberik/propagation-controller
 resources:
 - api:
     crdVersion: v1
@@ -14,6 +14,6 @@ resources:
   controller: true
   domain: kuberik.io
   kind: Propagation
-  path: kuberik.io/propagation-controller/api/v1alpha1
+  path: github.com/kuberik/propagation-controller/api/v1alpha1
   version: v1alpha1
 version: "3"
