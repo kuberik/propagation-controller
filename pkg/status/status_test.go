@@ -6,6 +6,7 @@ import (
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	fakeoci "github.com/kuberik/propagation-controller/pkg/oci/fake"
 	"github.com/stretchr/testify/assert"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -20,7 +21,7 @@ func TestPublishStatuses(t *testing.T) {
 	}}
 
 	ctrl := gomock.NewController(t)
-	ociClient := NewMockOCIClient(ctrl)
+	ociClient := fakeoci.NewMockOCIClient(ctrl)
 	ociClient.EXPECT().Push(gomock.Cond(func(x any) bool {
 		image, ok := x.(v1.Image)
 		if !ok {
@@ -50,7 +51,7 @@ func TestGetStatuses(t *testing.T) {
 	}}
 
 	ctrl := gomock.NewController(t)
-	ociClient := NewMockOCIClient(ctrl)
+	ociClient := fakeoci.NewMockOCIClient(ctrl)
 	statusesImage, err := newStatusesImage(want)
 	assert.NoError(t, err)
 	ociClient.EXPECT().Pull("registry.example.local/deployments/foo:prod").Return(statusesImage, nil)
