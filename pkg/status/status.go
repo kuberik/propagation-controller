@@ -12,36 +12,15 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/kuberik/propagation-controller/pkg/oci"
 )
-
-//go:generate sh -c "$(go env GOPATH)/bin/mockgen -destination mock_ociclient_test.go -package status github.com/kuberik/propagation-controller/pkg/status OCIClient"
-type OCIClient interface {
-	Pull(string) (v1.Image, error)
-	Push(v1.Image, string) error
-}
-
-var _ OCIClient = &CraneClient{}
-
-type CraneClient struct {
-	options []crane.Option
-}
-
-// Pull implements OCIClient.
-func (c *CraneClient) Pull(src string) (v1.Image, error) {
-	return crane.Pull(src, c.options...)
-}
-
-// Push implements OCIClient.
-func (c *CraneClient) Push(img v1.Image, dest string) error {
-	return crane.Push(img, dest, c.options...)
-}
 
 type StatusClient struct {
 	name.Repository
-	OCIClient
+	oci.OCIClient
 }
 
-func NewStatusClient(repository string, ociClient OCIClient) (*StatusClient, error) {
+func NewStatusClient(repository string, ociClient oci.OCIClient) (*StatusClient, error) {
 	repositoryParsed, err := name.NewRepository(repository)
 	if err != nil {
 		return nil, err
