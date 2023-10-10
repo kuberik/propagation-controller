@@ -6,6 +6,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.10
 	github.com/stretchr/testify v1.8.2
+	go.uber.org/mock v0.3.0
 	k8s.io/apimachinery v0.28.0
 	k8s.io/client-go v0.28.0
 	sigs.k8s.io/controller-runtime v0.16.0
@@ -24,8 +25,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.1 // indirect
 	github.com/vbatts/tar-split v0.11.3 // indirect
-	go.uber.org/mock v0.3.0 // indirect
-	golang.org/x/mod v0.11.0 // indirect
 	golang.org/x/sync v0.2.0 // indirect
 )
 
@@ -81,7 +80,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.28.0 // indirect
+	k8s.io/api v0.28.0
 	k8s.io/apiextensions-apiserver v0.28.0 // indirect
 	k8s.io/component-base v0.28.0 // indirect
 	k8s.io/klog/v2 v2.100.1 // indirect

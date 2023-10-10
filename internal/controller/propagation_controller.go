@@ -39,17 +39,21 @@ type PropagationReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Propagation object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.0/pkg/reconcile
 func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// propagation := v1alpha1.Propagation{}
+	// err := r.Client.Get(ctx, req.NamespacedName, &propagation)
+	// update status
+	// 1. get version
+	// 2. get statuses and aggregate (and over all)
+	// 3. publish status
+
+	// if status healthy, propagate
+	// 1. fetch statuses
+	// 2. get first version thtat satisfies all the requirements
+	// 3. if no version found return
+	// 4. propagate version
 
 	return ctrl.Result{}, nil
 }

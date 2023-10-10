@@ -6,18 +6,20 @@ import (
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	fakeoci "github.com/kuberik/propagation-controller/pkg/oci/fake"
 	"github.com/stretchr/testify/assert"
 	gomock "go.uber.org/mock/gomock"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestPublishStatuses(t *testing.T) {
-	input := []Status{{
+	input := []v1alpha1.DeploymentStatusReport{{
 		Version: "a",
-		Start:   time.Date(2023, 9, 23, 8, 42, 0, 0, time.UTC),
+		Start:   metav1.NewTime(time.Date(2023, 9, 23, 8, 42, 0, 0, time.Local)),
 	}, {
 		Version: "b",
-		Start:   time.Date(2023, 9, 23, 9, 42, 0, 0, time.UTC),
+		Start:   metav1.NewTime(time.Date(2023, 9, 23, 9, 42, 0, 0, time.Local)),
 	}}
 
 	ctrl := gomock.NewController(t)
@@ -42,12 +44,12 @@ func TestPublishStatuses(t *testing.T) {
 }
 
 func TestGetStatuses(t *testing.T) {
-	want := []Status{{
+	want := []v1alpha1.DeploymentStatusReport{{
 		Version: "a",
-		Start:   time.Date(2023, 9, 24, 8, 42, 0, 0, time.UTC),
+		Start:   metav1.NewTime(time.Date(2023, 9, 24, 8, 42, 0, 0, time.Local)),
 	}, {
 		Version: "b",
-		Start:   time.Date(2023, 9, 24, 9, 42, 0, 0, time.UTC),
+		Start:   metav1.NewTime(time.Date(2023, 9, 24, 9, 42, 0, 0, time.Local)),
 	}}
 
 	ctrl := gomock.NewController(t)

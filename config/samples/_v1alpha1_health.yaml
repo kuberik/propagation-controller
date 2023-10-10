@@ -1,0 +1,12 @@
+apiVersion: kuberik.io/v1alpha1
+kind: Health
+metadata:
+  labels:
+    app.kubernetes.io/name: health
+    app.kubernetes.io/instance: health-sample
+    app.kubernetes.io/part-of: propagation-controller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: propagation-controller
+  name: health-sample
+spec:
+  # TODO(user): Add fields here
