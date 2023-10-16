@@ -3,7 +3,6 @@ package status
 import (
 	"bytes"
 	"encoding/json"
-	"time"
 
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -12,6 +11,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/pkg/oci"
 )
 
@@ -32,13 +32,7 @@ func NewStatusClient(repository string, ociClient oci.OCIClient) (*StatusClient,
 	}, nil
 }
 
-type Status struct {
-	Version string    `json:"version,omitempty"`
-	Healthy bool      `json:"healthy,omitempty"`
-	Start   time.Time `json:"start,omitempty"`
-}
-
-func newStatusesImage(statuses []Status) (v1.Image, error) {
+func newStatusesImage(statuses []v1alpha1.DeploymentStatusReport) (v1.Image, error) {
 	statusesJSON, err := json.Marshal(statuses)
 	if err != nil {
 		return nil, err
@@ -52,7 +46,7 @@ func newStatusesImage(statuses []Status) (v1.Image, error) {
 	return image, nil
 }
 
-func (c *StatusClient) PublishStatuses(deployment string, statuses []Status) error {
+func (c *StatusClient) PublishStatuses(deployment string, statuses []v1alpha1.DeploymentStatusReport) error {
 	image, err := newStatusesImage(statuses)
 	if err != nil {
 		return err
@@ -64,14 +58,14 @@ func (c *StatusClient) PublishStatuses(deployment string, statuses []Status) err
 	return nil
 }
 
-func extractStatuses(image v1.Image) ([]Status, error) {
+func extractStatuses(image v1.Image) ([]v1alpha1.DeploymentStatusReport, error) {
 	var extracted bytes.Buffer
 	err := crane.Export(image, &extracted)
 	if err != nil {
 		return nil, err
 	}
 
-	result := []Status{}
+	result := []v1alpha1.DeploymentStatusReport{}
 	err = json.Unmarshal(extracted.Bytes(), &result)
 	if err != nil {
 		return nil, err
@@ -79,7 +73,7 @@ func extractStatuses(image v1.Image) ([]Status, error) {
 	return result, nil
 }
 
-func (c *StatusClient) GetStatuses(deployment string) ([]Status, error) {
+func (c *StatusClient) GetStatuses(deployment string) ([]v1alpha1.DeploymentStatusReport, error) {
 	image, err := c.OCIClient.Pull(c.Repository.Tag(deployment).Name())
 	if err != nil {
 		return nil, err
