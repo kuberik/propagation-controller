@@ -116,15 +116,16 @@ type LocalObjectField struct {
 
 // PropagationStatus defines the observed state of Propagation
 type PropagationStatus struct {
-	DeploymentStatusHistory []DeploymentStatusReport `json:"deploymentStatusHistory,omitempty"`
+	DeploymentStatus DeploymentStatus   `json:"deploymentStatus,omitempty"`
+	Conditions       []metav1.Condition `json:"conditions,omitempty"`
 }
 
-type DeploymentStatusReport struct {
+type DeploymentStatus struct {
 	Version string      `json:"version,omitempty"`
 	Start   metav1.Time `json:"start,omitempty"`
 
 	//+kubebuilder:validation:Enum=Healthy;Pending;Degraded
-	Status HealthState `json:"healthy,omitempty"`
+	State HealthState `json:"state,omitempty"`
 }
 
 //+kubebuilder:object:root=true
