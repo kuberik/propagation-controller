@@ -23,6 +23,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -36,6 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/internal/controller/clients"
+	"github.com/kuberik/propagation-controller/pkg/oci/memory"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -95,9 +99,16 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
+	client := memory.NewMemoryOCIClient()
 	err = (&PropagationReconciler{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sManager.GetScheme(),
+		NewBackendClient: func(repository name.Repository, ociClient []crane.Option) (*clients.PropagationBackendOCIClient, error) {
+			return &clients.PropagationBackendOCIClient{
+				Repository: repository,
+				OCIClient:  &client,
+			}, nil
+		},
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
