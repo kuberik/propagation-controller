@@ -14,7 +14,7 @@ import (
 )
 
 func TestPublishStatuses(t *testing.T) {
-	input := []v1alpha1.DeploymentStatusReport{{
+	input := []v1alpha1.DeploymentStatus{{
 		Version: "a",
 		Start:   metav1.NewTime(time.Date(2023, 9, 23, 8, 42, 0, 0, time.Local)),
 	}, {
@@ -44,7 +44,7 @@ func TestPublishStatuses(t *testing.T) {
 }
 
 func TestGetStatuses(t *testing.T) {
-	want := []v1alpha1.DeploymentStatusReport{{
+	want := []v1alpha1.DeploymentStatus{{
 		Version: "a",
 		Start:   metav1.NewTime(time.Date(2023, 9, 24, 8, 42, 0, 0, time.Local)),
 	}, {

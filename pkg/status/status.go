@@ -32,7 +32,7 @@ func NewStatusClient(repository string, ociClient oci.OCIClient) (*StatusClient,
 	}, nil
 }
 
-func newStatusesImage(statuses []v1alpha1.DeploymentStatusReport) (v1.Image, error) {
+func newStatusesImage(statuses []v1alpha1.DeploymentStatus) (v1.Image, error) {
 	statusesJSON, err := json.Marshal(statuses)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func newStatusesImage(statuses []v1alpha1.DeploymentStatusReport) (v1.Image, err
 	return image, nil
 }
 
-func (c *StatusClient) PublishStatuses(deployment string, statuses []v1alpha1.DeploymentStatusReport) error {
+func (c *StatusClient) PublishStatuses(deployment string, statuses []v1alpha1.DeploymentStatus) error {
 	image, err := newStatusesImage(statuses)
 	if err != nil {
 		return err
@@ -58,14 +58,14 @@ func (c *StatusClient) PublishStatuses(deployment string, statuses []v1alpha1.De
 	return nil
 }
 
-func extractStatuses(image v1.Image) ([]v1alpha1.DeploymentStatusReport, error) {
+func extractStatuses(image v1.Image) ([]v1alpha1.DeploymentStatus, error) {
 	var extracted bytes.Buffer
 	err := crane.Export(image, &extracted)
 	if err != nil {
 		return nil, err
 	}
 
-	result := []v1alpha1.DeploymentStatusReport{}
+	result := []v1alpha1.DeploymentStatus{}
 	err = json.Unmarshal(extracted.Bytes(), &result)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func extractStatuses(image v1.Image) ([]v1alpha1.DeploymentStatusReport, error) 
 	return result, nil
 }
 
-func (c *StatusClient) GetStatuses(deployment string) ([]v1alpha1.DeploymentStatusReport, error) {
+func (c *StatusClient) GetStatuses(deployment string) ([]v1alpha1.DeploymentStatus, error) {
 	image, err := c.OCIClient.Pull(c.Repository.Tag(deployment).Name())
 	if err != nil {
 		return nil, err
