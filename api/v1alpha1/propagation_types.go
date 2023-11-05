@@ -17,6 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"net/url"
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -34,11 +37,27 @@ type PropagationBackend struct {
 	// s3://my-bucket-n41nkl1n4/kuberik/system
 	// +kubebuilder:validation:Pattern="^(oci|s3):\\/\\/.+$"
 	// +optional
-	BasePath string `json:"basePath,omitempty"`
+	BaseUrl string `json:"baseUrl,omitempty"`
 
 	// The secret name containing the authentication credentials
 	// +optional
 	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+}
+
+func (backend PropagationBackend) Scheme() (string, error) {
+	u, err := url.Parse(backend.BaseUrl)
+	if err != nil {
+		return "", err
+	}
+	return u.Scheme, nil
+}
+
+func (backend PropagationBackend) TrimScheme() (string, error) {
+	scheme, err := backend.Scheme()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(backend.BaseUrl, scheme+"://"), nil
 }
 
 type Deployment struct {
@@ -46,7 +65,7 @@ type Deployment struct {
 	// deployed across the deployments within the same deployment group. This can be used if there are multiple sites
 	// which are deployed separately but represent the same environment. In that case the rollout of a single version
 	// can be preformed across all sites before starting a rollout for a newer version.
-	Group string `json:"group,omitempty"`
+	GroupWith []string `json:"groupWith,omitempty"`
 
 	// Name of the deployment. This value can be used in other Propagations to determine the order in which the
 	// deployments are propagated.
@@ -80,7 +99,7 @@ type DeployAfter struct {
 	Deployments []string `json:"deployments,omitempty"`
 
 	// TODO:
-	Groups []string `json:"groups,omitempty"`
+	// Groups []string `json:"groups,omitempty"`
 
 	// Propagtion will only be performed after all the deployments specified as dependencies report
 	// continous healthy states for the specifed duration.
@@ -116,8 +135,35 @@ type LocalObjectField struct {
 
 // PropagationStatus defines the observed state of Propagation
 type PropagationStatus struct {
-	DeploymentStatus DeploymentStatus   `json:"deploymentStatus,omitempty"`
-	Conditions       []metav1.Condition `json:"conditions,omitempty"`
+	DeploymentStatus          DeploymentStatus           `json:"deploymentStatus,omitempty"`
+	Conditions                []metav1.Condition         `json:"conditions,omitempty"`
+	DeploymentStatusesReports []DeploymentStatusesReport `json:"deploymentStatusesReports,omitempty"`
+}
+
+func (s *PropagationStatus) FindDeploymentStatusReport(deployment string) *DeploymentStatusesReport {
+	for i, report := range s.DeploymentStatusesReports {
+		if report.DeploymentName == deployment {
+			return &s.DeploymentStatusesReports[i]
+		}
+	}
+	return nil
+}
+
+// History of deployment statuses of an other Propagation
+type DeploymentStatusesReport struct {
+	DeploymentName string             `json:"deploymentName,omitempty"`
+	Statuses       []DeploymentStatus `json:"statuses,omitempty"`
+}
+
+func (r *DeploymentStatusesReport) AppendStatus(status DeploymentStatus) {
+	if len(r.Statuses) == 0 {
+		r.Statuses = append(r.Statuses, status)
+	} else if lastStatus := &r.Statuses[len(r.Statuses)-1]; lastStatus.Version == status.Version {
+		lastStatus.State = status.State
+		lastStatus.Start = status.Start
+	} else {
+		r.Statuses = append(r.Statuses, status)
+	}
 }
 
 type DeploymentStatus struct {

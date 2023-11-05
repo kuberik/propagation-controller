@@ -32,9 +32,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
 	kuberikiov1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/internal/controller"
+	"github.com/kuberik/propagation-controller/internal/controller/clients"
+	"github.com/kuberik/propagation-controller/pkg/oci"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -94,6 +98,12 @@ func main() {
 	if err = (&controller.PropagationReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		NewBackendClient: func(repository name.Repository, options []crane.Option) (*clients.PropagationBackendOCIClient, error) {
+			return &clients.PropagationBackendOCIClient{
+				Repository: repository,
+				OCIClient:  &oci.CraneClient{Options: options},
+			}, nil
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Propagation")
 		os.Exit(1)

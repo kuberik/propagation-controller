@@ -36,7 +36,7 @@ spec:
             properties:
               backend:
                 properties:
-                  basePath:
+                  baseUrl:
                     description: 'TODO: document and add examples oci://my-registry.my-domain/kuberik/system
                       s3://my-bucket-n41nkl1n4/kuberik/system'
                     pattern: ^(oci|s3):\/\/.+$
@@ -59,11 +59,6 @@ spec:
                     items:
                       type: string
                     type: array
-                  groups:
-                    description: 'TODO:'
-                    items:
-                      type: string
-                    type: array
                   interval:
                     description: Propagtion will only be performed after all the deployments
                       specified as dependencies report continous healthy states for
@@ -74,7 +69,7 @@ spec:
                 type: object
               deployment:
                 properties:
-                  group:
+                  groupWith:
                     description: Propagation will not proceed if, as a result of propagation,
                       there will be more than two active versions deployed across
                       the deployments within the same deployment group. This can be
@@ -82,7 +77,9 @@ spec:
                       but represent the same environment. In that case the rollout
                       of a single version can be preformed across all sites before
                       starting a rollout for a newer version.
-                    type: string
+                    items:
+                      type: string
+                    type: array
                   healthHistoryDurationLimit:
                     description: Specify for how long the history of healths will
                       be kept. This needs to be at least larger than `spec.deployAfter.interval`
@@ -303,6 +300,30 @@ spec:
                   version:
                     type: string
                 type: object
+              deploymentStatusesReports:
+                items:
+                  description: History of deployment statuses of an other Propagation
+                  properties:
+                    deploymentName:
+                      type: string
+                    statuses:
+                      items:
+                        properties:
+                          start:
+                            format: date-time
+                            type: string
+                          state:
+                            enum:
+                            - Healthy
+                            - Pending
+                            - Degraded
+                            type: string
+                          version:
+                            type: string
+                        type: object
+                      type: array
+                  type: object
+                type: array
             type: object
         type: object
     served: true

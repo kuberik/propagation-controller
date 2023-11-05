@@ -18,11 +18,19 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/internal/controller/clients"
+	"golang.org/x/sync/errgroup"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,7 +44,8 @@ import (
 // PropagationReconciler reconciles a Propagation object
 type PropagationReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	NewBackendClient clients.PropagationBackendOCIClientFactory
 }
 
 //+kubebuilder:rbac:groups=kuberik.io,resources=propagations,verbs=get;list;watch;create;update;patch;delete
@@ -54,26 +63,42 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	readyCondition := meta.FindStatusCondition(propagation.Status.Conditions, v1alpha1.ReadyCondition)
-	if readyCondition == nil {
-		readyCondition = &metav1.Condition{
-			Type: v1alpha1.ReadyCondition,
-		}
-		propagation.Status.Conditions = append(propagation.Status.Conditions, *readyCondition)
-		readyCondition = &propagation.Status.Conditions[len(propagation.Status.Conditions)-1]
-	}
-	readyCondition.Reason = "getVersion"
-	version, err := r.getVersion(ctx, *propagation)
+	propagationBackendClient, err := r.getPropagationBackendClient(ctx, propagation)
 	if err != nil {
-		readyCondition.LastTransitionTime = metav1.Now()
-		readyCondition.Message = err.Error()
-		readyCondition.Status = metav1.ConditionFalse
+		meta.SetStatusCondition(&propagation.Status.Conditions, v1.Condition{
+			Type:               v1alpha1.ReadyCondition,
+			Message:            err.Error(),
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: propagation.Generation,
+			Reason:             "BackendInitFailed",
+		})
 		r.Client.Status().Update(ctx, propagation)
 		return ctrl.Result{}, err
-	} else if readyCondition.Status != metav1.ConditionTrue {
-		readyCondition.Status = metav1.ConditionTrue
-		readyCondition.LastTransitionTime = metav1.Now()
-		readyCondition.Message = "Successfully parsed version"
+	}
+
+	version, err := r.getVersion(ctx, *propagation)
+	if err != nil {
+		meta.SetStatusCondition(&propagation.Status.Conditions, v1.Condition{
+			Type:               v1alpha1.ReadyCondition,
+			Message:            err.Error(),
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: propagation.Generation,
+			Reason:             "VersionMissing",
+		})
+		r.Client.Status().Update(ctx, propagation)
+		return ctrl.Result{}, err
+	}
+
+	if readyCondition := meta.FindStatusCondition(
+		propagation.Status.Conditions, v1alpha1.ReadyCondition,
+	); readyCondition == nil || readyCondition.Status != metav1.ConditionTrue {
+		meta.SetStatusCondition(&propagation.Status.Conditions, v1.Condition{
+			Type:               v1alpha1.ReadyCondition,
+			Status:             metav1.ConditionTrue,
+			Message:            "Propagation ready",
+			ObservedGeneration: propagation.Generation,
+			Reason:             "Ready",
+		})
 		if err := r.Client.Status().Update(ctx, propagation); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -88,7 +113,12 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			State:   v1alpha1.HealthStateHealthy,
 		}
 
-		// TODO: publish status to oci or s3 backend
+		if err := propagationBackendClient.PublishStatus(
+			propagation.Spec.Deployment.Name,
+			propagation.Status.DeploymentStatus,
+		); err != nil {
+			return ctrl.Result{}, err
+		}
 
 		err = r.Client.Status().Update(ctx, propagation)
 		if err != nil {
@@ -98,11 +128,91 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// if status healthy, propagate
 	// 1. fetch statuses
+	var getStatusErrors errgroup.Group
+	reports := make([]v1alpha1.DeploymentStatusesReport, len(propagation.Spec.DeployAfter.Deployments))
+	for i, deployment := range propagation.Spec.DeployAfter.Deployments {
+		report := propagation.Status.FindDeploymentStatusReport(deployment)
+		if report == nil {
+			report = &v1alpha1.DeploymentStatusesReport{
+				DeploymentName: deployment,
+			}
+		}
+		reports[i] = *report
+		i, deployment := i, deployment
+		getStatusErrors.Go(func() error {
+			status, err := propagationBackendClient.GetStatus(deployment)
+			if err != nil {
+				return err
+			}
+			status.Start = metav1.Now()
+			reports[i].AppendStatus(*status)
+			return nil
+		})
+	}
+	statusesErr := getStatusErrors.Wait()
+	// TODO: Set condition
+	propagation.Status.DeploymentStatusesReports = reports
+	err = r.Client.Status().Update(ctx, propagation)
+	if statusesErr != nil {
+		return ctrl.Result{}, statusesErr
+	} else if err != nil {
+		return ctrl.Result{}, err
+
+	}
 	// 2. get first version thtat satisfies all the requirements
 	// 3. if no version found return
 	// 4. propagate version
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PropagationReconciler) getPropagationBackendClient(ctx context.Context, propagation *v1alpha1.Propagation) (*clients.PropagationBackendOCIClient, error) {
+	protocol, err := propagation.Spec.Backend.Scheme()
+	if err != nil {
+		return nil, err
+	}
+	url, err := propagation.Spec.Backend.TrimScheme()
+	if err != nil {
+		return nil, err
+	}
+
+	secret := &corev1.Secret{}
+	if propagation.Spec.Backend.SecretRef != nil && propagation.Spec.Backend.SecretRef.Name != "" {
+		err = r.Client.Get(ctx, types.NamespacedName{
+			Name:      propagation.Spec.Backend.SecretRef.Name,
+			Namespace: propagation.Namespace,
+		}, secret)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	switch protocol {
+	case "oci":
+		repository, err := name.NewRepository(url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OCI repository: %w", err)
+		}
+
+		authConfig := &authn.AuthConfig{}
+		if secret.Data[corev1.DockerConfigJsonKey] != nil {
+			err = json.Unmarshal(secret.Data[corev1.DockerConfigJsonKey], authConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse docker auth config: %w", err)
+			}
+		}
+
+		client, err := r.NewBackendClient(repository, []crane.Option{
+			crane.WithAuth(authn.FromConfig(*authConfig)),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize OCI client: %w", err)
+		}
+		return client, nil
+	default:
+		return nil, fmt.Errorf("%s backend not supported", protocol)
+	}
+
 }
 
 func (r *PropagationReconciler) getVersion(ctx context.Context, propagation v1alpha1.Propagation) (string, error) {

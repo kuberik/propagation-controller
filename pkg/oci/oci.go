@@ -15,17 +15,17 @@ type OCIClient interface {
 var _ OCIClient = &CraneClient{}
 
 type CraneClient struct {
-	options []crane.Option
+	Options []crane.Option
 }
 
 // Pull implements OCIClient.
 func (c *CraneClient) Pull(tag string) (v1.Image, error) {
-	return crane.Pull(tag, c.options...)
+	return crane.Pull(tag, c.Options...)
 }
 
 // Push implements OCIClient.
 func (c *CraneClient) Push(img v1.Image, tag string) error {
-	return crane.Push(img, tag, c.options...)
+	return crane.Push(img, tag, c.Options...)
 }
 
 type RemoteImage struct {
