@@ -20,6 +20,8 @@ import (
 	"context"
 	"time"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/fake"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -52,9 +54,32 @@ var _ = Describe("Propagation controller", func() {
 	)
 
 	Context("When updating Propagation Status", func() {
-		It("Should set Propagation's health report in Status. Health report should be published to the backend.", func() {
-
+		It("Should propagate version to/from another deployment", func() {
 			ctx := context.Background()
+
+			By("Pushing manifests")
+			fakeDeploymentImage := func(deployment, version string) v1.Image {
+				return &fake.FakeImage{
+					ManifestStub: func() (*v1.Manifest, error) {
+						return &v1.Manifest{
+							Annotations: map[string]string{
+								"org.opencontainers.image.version": version,
+								"io.kuberik.deployment":            deployment,
+							},
+						}, nil
+					},
+				}
+			}
+			devRev2Image := fakeDeploymentImage("frankfurt-dev-1", "rev-2")
+			stagingRev1Image := fakeDeploymentImage("frankfurt-staging-1", "rev-1")
+			stagingRev2Image := fakeDeploymentImage("frankfurt-staging-1", "rev-2")
+
+			memoryOCIClient.Push(devRev2Image, "registry.local/k8s/my-app/manifests/frankfurt-dev-1:rev-2")
+			memoryOCIClient.Push(stagingRev1Image, "registry.local/k8s/my-app/manifests/frankfurt-staging-1:rev-1")
+			memoryOCIClient.Push(stagingRev2Image, "registry.local/k8s/my-app/manifests/frankfurt-staging-1:rev-2")
+
+			memoryOCIClient.Push(devRev2Image, "registry.local/k8s/my-app/deploy/frankfurt-dev-1:latest")
+			memoryOCIClient.Push(stagingRev1Image, "registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
 
 			By("By creating a new Propagation")
 
@@ -78,7 +103,7 @@ var _ = Describe("Propagation controller", func() {
 				},
 				Spec: v1alpha1.PropagationSpec{
 					Backend: v1alpha1.PropagationBackend{
-						BaseUrl: "oci://registry.local/k8s",
+						BaseUrl: "oci://registry.local/k8s/my-app",
 					},
 					Deployment: v1alpha1.Deployment{
 						Name: "frankfurt-dev-1",
@@ -109,7 +134,7 @@ var _ = Describe("Propagation controller", func() {
 				return false
 			}, timeout, interval).Should(BeTrue())
 
-			By("By creating a new ConfigMap with deployed version")
+			By("By creating a new ConfigMap with deployed version to dev")
 			deployedVersionDevConfigMap := &corev1.ConfigMap{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1",
@@ -170,7 +195,7 @@ var _ = Describe("Propagation controller", func() {
 				},
 				Spec: v1alpha1.PropagationSpec{
 					Backend: v1alpha1.PropagationBackend{
-						BaseUrl: "oci://registry.local/k8s",
+						BaseUrl: "oci://registry.local/k8s/my-app",
 					},
 					Deployment: v1alpha1.Deployment{
 						Name: "frankfurt-staging-1",
@@ -185,12 +210,13 @@ var _ = Describe("Propagation controller", func() {
 						Deployments: []string{
 							"frankfurt-dev-1",
 						},
+						Interval: metav1.Duration{Duration: 4 * time.Hour},
 					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, propagationStaging)).Should(Succeed())
 
-			By("By creating a new ConfigMap with deployed version of Propagation two")
+			By("By creating a new ConfigMap with deployed version of staging Propagation")
 			deployedStagingVersionConfigMap := &corev1.ConfigMap{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1",
@@ -206,6 +232,7 @@ var _ = Describe("Propagation controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, deployedStagingVersionConfigMap)).Should(Succeed())
 
+			By("Updating deployment status reports")
 			propagationStagingLookupKey := types.NamespacedName{Name: PropagationName, Namespace: PropagationStagingNamespace}
 			createdPropagationStaging := &v1alpha1.Propagation{}
 
@@ -226,6 +253,32 @@ var _ = Describe("Propagation controller", func() {
 				}
 				return false
 			}, timeout, interval).Should(BeTrue())
+
+			By("Waiting for version rev-1 to be healthy for specified duration")
+
+			Consistently(func() v1.Image {
+				currentDeployImage, _ := memoryOCIClient.Pull("registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
+				return currentDeployImage
+			}, timeout, interval).Should(Equal(stagingRev1Image))
+
+			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(
+				time.Now().Add(-3*time.Hour - 59*time.Minute),
+			)
+			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
+
+			Consistently(func() v1.Image {
+				currentDeployImage, _ := memoryOCIClient.Pull("registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
+				return currentDeployImage
+			}, timeout, interval).Should(Equal(stagingRev1Image))
+
+			By("Propagating version")
+			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(time.Now().Add(-4 * time.Hour))
+			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
+
+			Eventually(func() v1.Image {
+				currentDeployImage, _ := memoryOCIClient.Pull("registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
+				return currentDeployImage
+			}, timeout, interval).Should(Equal(stagingRev2Image))
 
 			// TODO: test version change
 		})

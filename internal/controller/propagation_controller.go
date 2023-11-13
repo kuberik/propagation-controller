@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/crane"
@@ -55,7 +56,7 @@ type PropagationReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx).WithName(req.NamespacedName.String())
 
 	propagation := &v1alpha1.Propagation{}
 	err := r.Client.Get(ctx, req.NamespacedName, propagation)
@@ -157,11 +158,21 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, statusesErr
 	} else if err != nil {
 		return ctrl.Result{}, err
-
 	}
-	// 2. get first version thtat satisfies all the requirements
-	// 3. if no version found return
-	// 4. propagate version
+
+	propagateVersion := propagation.NextVersion()
+	if propagateVersion == "" {
+		// TODO: Calculate from status how long to wait
+		log.Info("No candidate version to propagate")
+		return ctrl.Result{
+			Requeue:      true,
+			RequeueAfter: 60 * time.Second,
+		}, nil
+	}
+	log.Info(fmt.Sprintf("Propagating to version %s", propagateVersion))
+	if err := propagationBackendClient.Propagate(propagation.Spec.Deployment.Name, propagateVersion); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
