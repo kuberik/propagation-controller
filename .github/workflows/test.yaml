@@ -1,10 +1,41 @@
-name: test
+name: Generate test report
 on: [push]
 jobs:
-  test:
+  coverage:
     runs-on: ubuntu-latest
+    outputs:
+      coverage_report_url: ${{ steps.pages.outputs.url }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
       - name: Run tests
         run: make test
+      - name: Generate HTML coverage report
+        run: mkdir -p ci_report_site && go tool cover -html=cover.out -o ci_report_site/index.html
+      - id: pages
+        name: Publish to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: kuberik-propagation-ci
+          directory: ci_report_site
+          # Optional: Enable this if you want to have GitHub Deployments triggered
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: Switch what branch you are publishing to.
+          # By default this will be the branch which triggered this workflow
+          branch: ${{ vars.GITHUB_REF_NAME}}
+          # Optional: Change the Wrangler version, allows you to point to a specific version or a tag such as `beta`
+          wranglerVersion: '3'
+  comment:
+    runs-on: ubuntu-latest
+    needs: coverage
+    steps:
+      - name: Create commit comment
+        uses: peter-evans/commit-comment@v3
+        with:
+          body: |
+            Test coverage report: ${{needs.coverage.outputs.coverage_report_url}}
