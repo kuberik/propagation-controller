@@ -157,12 +157,13 @@ type DeploymentStatusesReport struct {
 	Statuses       []DeploymentStatus `json:"statuses,omitempty"`
 }
 
-func (r *DeploymentStatusesReport) VersionHealthyDuration(version string, at time.Time) time.Duration {
+func (r *DeploymentStatusesReport) VersionHealthyDuration(version string) time.Duration {
+	now := time.Now()
 	for i, s1 := range r.Statuses {
 		if s1.Version != version {
 			continue
 		}
-		until := at
+		until := now
 		for _, s2 := range r.Statuses[i:] {
 			if s2.State != HealthStateHealthy {
 				if s2.Version == s1.Version {
@@ -217,10 +218,10 @@ type Propagation struct {
 }
 
 func (p *Propagation) NextVersion() string {
-	versions := []string{}
 	if len(p.Status.DeploymentStatusesReports) == 0 {
 		return ""
 	}
+	versions := []string{}
 	statuses := p.Status.DeploymentStatusesReports[0].Statuses
 	for i := len(statuses) - 1; i >= 0; i-- {
 		version := statuses[i].Version
@@ -229,11 +230,10 @@ func (p *Propagation) NextVersion() string {
 		}
 	}
 
-	now := time.Now()
 versions:
 	for _, v := range versions {
 		for _, r := range p.Status.DeploymentStatusesReports {
-			if p.Spec.DeployAfter.Interval.Duration > r.VersionHealthyDuration(v, now) {
+			if p.Spec.DeployAfter.Interval.Duration > r.VersionHealthyDuration(v) {
 				continue versions
 			}
 		}
