@@ -353,7 +353,9 @@ func TestVersionsStateDuration(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for v, d := range tc.want {
-				assert.Equal(t, d, tc.report.VersionHealthyDuration(v, testStartTime))
+				adjustedResult := (tc.report.VersionHealthyDuration(v) - d).Abs() - time.Since(testStartTime)
+				assert.True(t, adjustedResult < 0)
+				assert.True(t, adjustedResult > -100*time.Millisecond)
 			}
 		})
 	}
