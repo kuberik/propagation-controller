@@ -52,6 +52,8 @@ var (
 	testEnv   *envtest.Environment
 	ctx       context.Context
 	cancel    context.CancelFunc
+
+	memoryOCIClient memory.MemoryOCIClient
 )
 
 func TestControllers(t *testing.T) {
@@ -99,14 +101,14 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	client := memory.NewMemoryOCIClient()
+	memoryOCIClient = memory.NewMemoryOCIClient()
 	err = (&PropagationReconciler{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sManager.GetScheme(),
 		NewBackendClient: func(repository name.Repository, ociClient []crane.Option) (*clients.PropagationBackendOCIClient, error) {
 			return &clients.PropagationBackendOCIClient{
 				Repository: repository,
-				OCIClient:  &client,
+				OCIClient:  &memoryOCIClient,
 			}, nil
 		},
 	}).SetupWithManager(k8sManager)

@@ -36,7 +36,11 @@ func newStatusImage(status v1alpha1.DeploymentStatus) (v1.Image, error) {
 	return image, nil
 }
 
-const statusesSubPath = "statuses"
+const (
+	statusesSubPath  = "statuses"
+	manifestsSubPath = "manifests"
+	deploySubPath    = "deploy"
+)
 
 func (c *PropagationBackendOCIClient) statusTag(deployment string) string {
 	return c.Repository.Registry.Repo(c.Repository.RepositoryStr(), statusesSubPath, deployment).Tag(name.DefaultTag).Name()
@@ -75,4 +79,21 @@ func (c *PropagationBackendOCIClient) GetStatus(deployment string) (*v1alpha1.De
 		return nil, err
 	}
 	return extractStatus(image)
+}
+
+func (c *PropagationBackendOCIClient) Propagate(deployment, version string) error {
+	image, err := c.OCIClient.Pull(
+		c.Repository.Registry.Repo(c.Repository.RepositoryStr(), manifestsSubPath, deployment).Tag(version).Name(),
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := c.OCIClient.Push(
+		image,
+		c.Repository.Registry.Repo(c.Repository.RepositoryStr(), deploySubPath, deployment).Tag(name.DefaultTag).Name(),
+	); err != nil {
+		return err
+	}
+	return nil
 }

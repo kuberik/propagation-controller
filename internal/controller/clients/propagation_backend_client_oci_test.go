@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	fakeoci "github.com/kuberik/propagation-controller/pkg/oci/fake"
 	"github.com/stretchr/testify/assert"
@@ -67,4 +68,21 @@ func TestGetStatusOCI(t *testing.T) {
 	status, err := client.GetStatus("prod")
 	assert.NoError(t, err)
 	assert.Equal(t, want, *status)
+}
+
+func TestPropagate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ociClient := fakeoci.NewMockOCIClient(ctrl)
+	ociClient.EXPECT().Pull("registry.example.local/deployments/foo/manifests/staging:abf1a799152d2655bbd7b4bf0b70422d7eda233f").Return(empty.Image, nil)
+	ociClient.EXPECT().Push(empty.Image, "registry.example.local/deployments/foo/deploy/staging:latest")
+
+	repository, err := name.NewRepository("registry.example.local/deployments/foo")
+	assert.NoError(t, err)
+	client := PropagationBackendOCIClient{
+		Repository: repository,
+		OCIClient:  ociClient,
+	}
+
+	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
+	assert.NoError(t, err)
 }

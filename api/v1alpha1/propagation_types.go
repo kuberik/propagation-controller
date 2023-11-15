@@ -18,7 +18,9 @@ package v1alpha1
 
 import (
 	"net/url"
+	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,14 +157,42 @@ type DeploymentStatusesReport struct {
 	Statuses       []DeploymentStatus `json:"statuses,omitempty"`
 }
 
+func (r *DeploymentStatusesReport) VersionHealthyDuration(version string, at time.Time) time.Duration {
+	for i, s1 := range r.Statuses {
+		if s1.Version != version {
+			continue
+		}
+		until := at
+		for _, s2 := range r.Statuses[i:] {
+			if s2.State != HealthStateHealthy {
+				if s2.Version == s1.Version {
+					return 0
+				} else {
+					until = s2.Start.Time
+				}
+			}
+		}
+		return until.Sub(s1.Start.Time)
+	}
+	return 0
+}
+
 func (r *DeploymentStatusesReport) AppendStatus(status DeploymentStatus) {
-	if len(r.Statuses) == 0 {
+	statusCount := len(r.Statuses)
+	if statusCount == 0 {
 		r.Statuses = append(r.Statuses, status)
-	} else if lastStatus := &r.Statuses[len(r.Statuses)-1]; lastStatus.Version == status.Version {
+	} else if lastStatus := &r.Statuses[statusCount-1]; lastStatus.Version == status.Version && lastStatus.State == HealthStatePending {
 		lastStatus.State = status.State
-		lastStatus.Start = status.Start
+		if status.State == HealthStateHealthy {
+			lastStatus.Start = status.Start
+		}
 	} else {
 		r.Statuses = append(r.Statuses, status)
+	}
+	statusCount = len(r.Statuses)
+	if statusCount >= 2 && r.Statuses[statusCount-2].Version == status.Version &&
+		r.Statuses[statusCount-2].State == status.State {
+		r.Statuses = r.Statuses[:statusCount-1]
 	}
 }
 
@@ -184,6 +214,32 @@ type Propagation struct {
 
 	Spec   PropagationSpec   `json:"spec,omitempty"`
 	Status PropagationStatus `json:"status,omitempty"`
+}
+
+func (p *Propagation) NextVersion() string {
+	versions := []string{}
+	if len(p.Status.DeploymentStatusesReports) == 0 {
+		return ""
+	}
+	statuses := p.Status.DeploymentStatusesReports[0].Statuses
+	for i := len(statuses) - 1; i >= 0; i-- {
+		version := statuses[i].Version
+		if !slices.Contains(versions, version) {
+			versions = append(versions, version)
+		}
+	}
+
+	now := time.Now()
+versions:
+	for _, v := range versions {
+		for _, r := range p.Status.DeploymentStatusesReports {
+			if p.Spec.DeployAfter.Interval.Duration > r.VersionHealthyDuration(v, now) {
+				continue versions
+			}
+		}
+		return v
+	}
+	return ""
 }
 
 //+kubebuilder:object:root=true
