@@ -2,7 +2,6 @@ package oci
 
 import (
 	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
@@ -26,28 +25,4 @@ func (c *CraneClient) Pull(tag string) (v1.Image, error) {
 // Push implements OCIClient.
 func (c *CraneClient) Push(img v1.Image, tag string) error {
 	return crane.Push(img, tag, c.Options...)
-}
-
-type RemoteImage struct {
-	tag    name.Tag
-	client OCIClient
-}
-
-func NewRemoteImage(image string, client OCIClient) (*RemoteImage, error) {
-	tag, err := name.NewTag(image)
-	if err != nil {
-		return nil, err
-	}
-	return &RemoteImage{
-		tag:    tag,
-		client: client,
-	}, nil
-}
-
-func (i *RemoteImage) Pull() (v1.Image, error) {
-	return i.client.Pull(i.tag.Name())
-}
-
-func (i *RemoteImage) Push(img v1.Image) error {
-	return i.client.Push(img, i.tag.Name())
 }
