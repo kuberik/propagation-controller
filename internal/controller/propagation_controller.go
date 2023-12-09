@@ -219,6 +219,7 @@ func (r *PropagationReconciler) getPropagationBackendClient(ctx context.Context,
 		clientKey := types.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
 		if existingClient, ok := r.BackendClients[clientKey]; ok {
 			client.DeploymentStatusesCache = existingClient.DeploymentStatusesCache
+			client.CurrentStatus = existingClient.CurrentStatus
 		}
 		r.BackendClients[clientKey] = &client
 		return &client, nil

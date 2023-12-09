@@ -43,6 +43,40 @@ func TestPublishStatusOCI(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestPublishStatusOCICached(t *testing.T) {
+	input := v1alpha1.DeploymentStatus{
+		Version: "a",
+		Start:   metav1.NewTime(time.Date(2023, 9, 23, 8, 42, 0, 0, time.Local)),
+	}
+
+	ctrl := gomock.NewController(t)
+	ociClient := fakeoci.NewMockOCIClient(ctrl)
+	ociClient.EXPECT().Push(
+		gomock.Cond(func(x any) bool {
+			image, ok := x.(v1.Image)
+			if !ok {
+				return false
+			}
+
+			got, err := extractStatus(image)
+			assert.NoError(t, err)
+
+			return reflect.DeepEqual(input, *got)
+		}),
+		"registry.example.local/deployments/foo/statuses/staging-frankfurt-1:latest",
+	).Times(1)
+
+	repository, err := name.NewRepository("registry.example.local/deployments/foo")
+	assert.NoError(t, err)
+	client := NewPropagationBackendOCIClient(repository, ociClient)
+
+	err = client.PublishStatus("staging-frankfurt-1", input)
+	assert.NoError(t, err)
+
+	err = client.PublishStatus("staging-frankfurt-1", input)
+	assert.NoError(t, err)
+}
+
 func TestGetStatusOCI(t *testing.T) {
 	want := v1alpha1.DeploymentStatus{
 		Version: "a",
