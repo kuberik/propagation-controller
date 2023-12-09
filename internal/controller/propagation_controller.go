@@ -31,7 +31,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,6 +46,7 @@ type PropagationReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
 	NewBackendClient clients.PropagationBackendOCIClientFactory
+	BackendClients   map[types.NamespacedName]*clients.PropagationBackendOCIClient
 }
 
 //+kubebuilder:rbac:groups=kuberik.io,resources=propagations,verbs=get;list;watch;create;update;patch;delete
@@ -66,7 +66,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	propagationBackendClient, err := r.getPropagationBackendClient(ctx, propagation)
 	if err != nil {
-		meta.SetStatusCondition(&propagation.Status.Conditions, v1.Condition{
+		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ReadyCondition,
 			Message:            err.Error(),
 			Status:             metav1.ConditionFalse,
@@ -79,7 +79,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	version, err := r.getVersion(ctx, *propagation)
 	if err != nil {
-		meta.SetStatusCondition(&propagation.Status.Conditions, v1.Condition{
+		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ReadyCondition,
 			Message:            err.Error(),
 			Status:             metav1.ConditionFalse,
@@ -93,7 +93,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if readyCondition := meta.FindStatusCondition(
 		propagation.Status.Conditions, v1alpha1.ReadyCondition,
 	); readyCondition == nil || readyCondition.Status != metav1.ConditionTrue {
-		meta.SetStatusCondition(&propagation.Status.Conditions, v1.Condition{
+		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ReadyCondition,
 			Status:             metav1.ConditionTrue,
 			Message:            "Propagation ready",
@@ -213,13 +213,15 @@ func (r *PropagationReconciler) getPropagationBackendClient(ctx context.Context,
 			}
 		}
 
-		client, err := r.NewBackendClient(repository, []crane.Option{
+		client := r.NewBackendClient(repository, []crane.Option{
 			crane.WithAuth(authn.FromConfig(*authConfig)),
 		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize OCI client: %w", err)
+		clientKey := types.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
+		if existingClient, ok := r.BackendClients[clientKey]; ok {
+			client.DeploymentStatusesCache = existingClient.DeploymentStatusesCache
 		}
-		return client, nil
+		r.BackendClients[clientKey] = &client
+		return &client, nil
 	default:
 		return nil, fmt.Errorf("%s backend not supported", protocol)
 	}

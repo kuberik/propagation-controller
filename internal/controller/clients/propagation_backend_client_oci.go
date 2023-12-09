@@ -15,11 +15,21 @@ import (
 	"github.com/kuberik/propagation-controller/pkg/oci"
 )
 
-type PropagationBackendOCIClientFactory func(repository name.Repository, ociClient []crane.Option) (*PropagationBackendOCIClient, error)
+type PropagationBackendOCIClientFactory func(repository name.Repository, ociClient []crane.Option) PropagationBackendOCIClient
 
 type PropagationBackendOCIClient struct {
 	name.Repository
 	oci.OCIClient
+	DeploymentStatusesCache map[string]v1.Image
+}
+
+func NewPropagationBackendOCIClient(repository name.Repository, client oci.OCIClient) PropagationBackendOCIClient {
+	return PropagationBackendOCIClient{
+		Repository:              repository,
+		OCIClient:               client,
+		DeploymentStatusesCache: make(map[string]v1.Image),
+	}
+
 }
 
 func newStatusImage(status v1alpha1.DeploymentStatus) (v1.Image, error) {
@@ -74,11 +84,27 @@ func extractStatus(image v1.Image) (*v1alpha1.DeploymentStatus, error) {
 }
 
 func (c *PropagationBackendOCIClient) GetStatus(deployment string) (*v1alpha1.DeploymentStatus, error) {
-	image, err := c.OCIClient.Pull(c.statusTag(deployment))
+	statusTag := c.statusTag(deployment)
+	if cachedStatus, ok := c.DeploymentStatusesCache[deployment]; ok {
+		cachedDigest, digestErr := cachedStatus.Digest()
+		remoteDigest, err := c.OCIClient.Digest(statusTag)
+		if err == nil && digestErr == nil && remoteDigest == cachedDigest.String() {
+			return extractStatus(cachedStatus)
+		}
+	}
+
+	image, err := c.OCIClient.Pull(statusTag)
 	if err != nil {
 		return nil, err
 	}
-	return extractStatus(image)
+
+	status, err := extractStatus(image)
+	if err != nil {
+		return nil, err
+	}
+
+	c.DeploymentStatusesCache[deployment] = image
+	return status, nil
 }
 
 func (c *PropagationBackendOCIClient) Propagate(deployment, version string) error {
