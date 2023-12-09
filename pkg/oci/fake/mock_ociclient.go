@@ -38,6 +38,21 @@ func (m *MockOCIClient) EXPECT() *MockOCIClientMockRecorder {
 	return m.recorder
 }
 
+// Digest mocks base method.
+func (m *MockOCIClient) Digest(arg0 string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Digest", arg0)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Digest indicates an expected call of Digest.
+func (mr *MockOCIClientMockRecorder) Digest(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Digest", reflect.TypeOf((*MockOCIClient)(nil).Digest), arg0)
+}
+
 // Pull mocks base method.
 func (m *MockOCIClient) Pull(arg0 string) (v1.Image, error) {
 	m.ctrl.T.Helper()
