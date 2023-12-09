@@ -32,6 +32,23 @@ func (c *MemoryOCIClient) Pull(tag string) (v1.Image, error) {
 	return image, nil
 }
 
+// Digest implements oci.OCIClient.
+func (c *MemoryOCIClient) Digest(tag string) (string, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	image, ok := c.images[tag]
+	if !ok {
+		return "", fmt.Errorf("image not found")
+	}
+
+	digest, err := image.Digest()
+	if err != nil {
+		return "", err
+	}
+	return digest.String(), nil
+}
+
 // Push implements oci.OCIClient.
 func (c *MemoryOCIClient) Push(image v1.Image, tag string) error {
 	c.mutex.Lock()
