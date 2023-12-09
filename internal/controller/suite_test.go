@@ -30,6 +30,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,12 +106,10 @@ var _ = BeforeSuite(func() {
 	err = (&PropagationReconciler{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sManager.GetScheme(),
-		NewBackendClient: func(repository name.Repository, ociClient []crane.Option) (*clients.PropagationBackendOCIClient, error) {
-			return &clients.PropagationBackendOCIClient{
-				Repository: repository,
-				OCIClient:  &memoryOCIClient,
-			}, nil
+		NewBackendClient: func(repository name.Repository, ociClient []crane.Option) clients.PropagationBackendOCIClient {
+			return clients.NewPropagationBackendOCIClient(repository, &memoryOCIClient)
 		},
+		BackendClients: make(map[types.NamespacedName]*clients.PropagationBackendOCIClient),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

@@ -25,6 +25,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -98,12 +99,10 @@ func main() {
 	if err = (&controller.PropagationReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-		NewBackendClient: func(repository name.Repository, options []crane.Option) (*clients.PropagationBackendOCIClient, error) {
-			return &clients.PropagationBackendOCIClient{
-				Repository: repository,
-				OCIClient:  &oci.CraneClient{Options: options},
-			}, nil
+		NewBackendClient: func(repository name.Repository, options []crane.Option) clients.PropagationBackendOCIClient {
+			return clients.NewPropagationBackendOCIClient(repository, &oci.CraneClient{Options: options})
 		},
+		BackendClients: make(map[types.NamespacedName]*clients.PropagationBackendOCIClient),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Propagation")
 		os.Exit(1)

@@ -37,10 +37,7 @@ func TestPublishStatusOCI(t *testing.T) {
 
 	repository, err := name.NewRepository("registry.example.local/deployments/foo")
 	assert.NoError(t, err)
-	client := PropagationBackendOCIClient{
-		Repository: repository,
-		OCIClient:  ociClient,
-	}
+	client := NewPropagationBackendOCIClient(repository, ociClient)
 
 	err = client.PublishStatus("staging-frankfurt-1", input)
 	assert.NoError(t, err)
@@ -60,14 +57,56 @@ func TestGetStatusOCI(t *testing.T) {
 
 	repository, err := name.NewRepository("registry.example.local/deployments/foo")
 	assert.NoError(t, err)
-	client := PropagationBackendOCIClient{
-		Repository: repository,
-		OCIClient:  ociClient,
-	}
+	client := NewPropagationBackendOCIClient(repository, ociClient)
 
 	status, err := client.GetStatus("prod")
 	assert.NoError(t, err)
 	assert.Equal(t, want, *status)
+}
+
+func TestGetStatusCached(t *testing.T) {
+	initialStatus := v1alpha1.DeploymentStatus{
+		Version: "a",
+		Start:   metav1.NewTime(time.Date(2023, 9, 24, 8, 42, 0, 0, time.Local)),
+	}
+
+	ctrl := gomock.NewController(t)
+	ociClient := fakeoci.NewMockOCIClient(ctrl)
+	statusImage, err := newStatusImage(initialStatus)
+	assert.NoError(t, err)
+	statusImageDigest, err := statusImage.Digest()
+	assert.NoError(t, err)
+	ociClient.EXPECT().Digest("registry.example.local/deployments/foo/statuses/prod:latest").Times(1).Return(statusImageDigest.String(), nil)
+	ociClient.EXPECT().Pull("registry.example.local/deployments/foo/statuses/prod:latest").Times(1).Return(statusImage, nil)
+
+	repository, err := name.NewRepository("registry.example.local/deployments/foo")
+	assert.NoError(t, err)
+	client := NewPropagationBackendOCIClient(repository, ociClient)
+
+	status, err := client.GetStatus("prod")
+	assert.NoError(t, err)
+	assert.Equal(t, initialStatus, *status)
+
+	// cached call
+	status, err = client.GetStatus("prod")
+	assert.NoError(t, err)
+	assert.Equal(t, initialStatus, *status)
+
+	nextStatus := v1alpha1.DeploymentStatus{
+		Version: "b",
+		Start:   metav1.NewTime(time.Date(2023, 9, 25, 8, 42, 0, 0, time.Local)),
+	}
+
+	nextStatusImage, err := newStatusImage(nextStatus)
+	assert.NoError(t, err)
+	nextStatusImageDigest, err := nextStatusImage.Digest()
+	assert.NoError(t, err)
+	ociClient.EXPECT().Digest("registry.example.local/deployments/foo/statuses/prod:latest").Times(1).Return(nextStatusImageDigest.String(), nil)
+	ociClient.EXPECT().Pull("registry.example.local/deployments/foo/statuses/prod:latest").Times(1).Return(nextStatusImage, nil)
+
+	status, err = client.GetStatus("prod")
+	assert.NoError(t, err)
+	assert.Equal(t, nextStatus, *status)
 }
 
 func TestPropagate(t *testing.T) {
@@ -78,10 +117,7 @@ func TestPropagate(t *testing.T) {
 
 	repository, err := name.NewRepository("registry.example.local/deployments/foo")
 	assert.NoError(t, err)
-	client := PropagationBackendOCIClient{
-		Repository: repository,
-		OCIClient:  ociClient,
-	}
+	client := NewPropagationBackendOCIClient(repository, ociClient)
 
 	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
 	assert.NoError(t, err)
