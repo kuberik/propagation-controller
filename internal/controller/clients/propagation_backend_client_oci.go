@@ -22,6 +22,7 @@ type PropagationBackendOCIClient struct {
 	oci.OCIClient
 	DeploymentStatusesCache map[string]v1.Image
 	CurrentStatus           v1alpha1.DeploymentStatus
+	CurrentVersion          string
 }
 
 func NewPropagationBackendOCIClient(repository name.Repository, client oci.OCIClient) PropagationBackendOCIClient {
@@ -113,6 +114,9 @@ func (c *PropagationBackendOCIClient) GetStatus(deployment string) (*v1alpha1.De
 }
 
 func (c *PropagationBackendOCIClient) Propagate(deployment, version string) error {
+	if version == c.CurrentVersion {
+		return nil
+	}
 	image, err := c.OCIClient.Pull(
 		c.Repository.Registry.Repo(c.Repository.RepositoryStr(), manifestsSubPath, deployment).Tag(version).Name(),
 	)
@@ -126,5 +130,6 @@ func (c *PropagationBackendOCIClient) Propagate(deployment, version string) erro
 	); err != nil {
 		return err
 	}
+	c.CurrentVersion = version
 	return nil
 }

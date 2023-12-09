@@ -156,3 +156,20 @@ func TestPropagate(t *testing.T) {
 	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
 	assert.NoError(t, err)
 }
+
+func TestPropagateCached(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ociClient := fakeoci.NewMockOCIClient(ctrl)
+	ociClient.EXPECT().Pull("registry.example.local/deployments/foo/manifests/staging:abf1a799152d2655bbd7b4bf0b70422d7eda233f").Return(empty.Image, nil).Times(1)
+	ociClient.EXPECT().Push(empty.Image, "registry.example.local/deployments/foo/deploy/staging:latest").Times(1)
+
+	repository, err := name.NewRepository("registry.example.local/deployments/foo")
+	assert.NoError(t, err)
+	client := NewPropagationBackendOCIClient(repository, ociClient)
+
+	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
+	assert.NoError(t, err)
+
+	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
+	assert.NoError(t, err)
+}
