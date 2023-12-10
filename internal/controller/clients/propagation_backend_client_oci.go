@@ -21,6 +21,7 @@ type PropagationBackendOCIClient struct {
 	name.Repository
 	oci.OCIClient
 	DeploymentStatusesCache map[string]v1.Image
+	CurrentStatus           v1alpha1.DeploymentStatus
 }
 
 func NewPropagationBackendOCIClient(repository name.Repository, client oci.OCIClient) PropagationBackendOCIClient {
@@ -57,6 +58,9 @@ func (c *PropagationBackendOCIClient) statusTag(deployment string) string {
 }
 
 func (c *PropagationBackendOCIClient) PublishStatus(deployment string, status v1alpha1.DeploymentStatus) error {
+	if status == c.CurrentStatus {
+		return nil
+	}
 	image, err := newStatusImage(status)
 	if err != nil {
 		return err
@@ -65,6 +69,7 @@ func (c *PropagationBackendOCIClient) PublishStatus(deployment string, status v1
 	if err := c.OCIClient.Push(image, c.statusTag(deployment)); err != nil {
 		return err
 	}
+	c.CurrentStatus = status
 	return nil
 }
 
