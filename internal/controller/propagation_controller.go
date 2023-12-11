@@ -18,17 +18,12 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/google/go-containerregistry/pkg/name"
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/internal/controller/clients"
 	"golang.org/x/sync/errgroup"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -44,9 +39,8 @@ import (
 // PropagationReconciler reconciles a Propagation object
 type PropagationReconciler struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	NewBackendClient clients.PropagationBackendOCIClientFactory
-	BackendClients   map[types.NamespacedName]*clients.PropagationBackendOCIClient
+	Scheme *runtime.Scheme
+	clients.PropagationClientset
 }
 
 //+kubebuilder:rbac:groups=kuberik.io,resources=propagations,verbs=get;list;watch;create;update;patch;delete
@@ -64,7 +58,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	propagationBackendClient, err := r.getPropagationBackendClient(ctx, propagation)
+	propagationClient, err := r.Propagation(*propagation)
 	if err != nil {
 		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ReadyCondition,
@@ -114,7 +108,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			State:   v1alpha1.HealthStateHealthy,
 		}
 
-		if err := propagationBackendClient.PublishStatus(
+		if err := propagationClient.PublishStatus(
 			propagation.Spec.Deployment.Name,
 			propagation.Status.DeploymentStatus,
 		); err != nil {
@@ -141,7 +135,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		reports[i] = *report
 		i, deployment := i, deployment
 		getStatusErrors.Go(func() error {
-			status, err := propagationBackendClient.GetStatus(deployment)
+			status, err := propagationClient.GetStatus(deployment)
 			if err != nil {
 				return err
 			}
@@ -170,64 +164,11 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}, nil
 	}
 	log.Info(fmt.Sprintf("Propagating to version %s", propagateVersion))
-	if err := propagationBackendClient.Propagate(propagation.Spec.Deployment.Name, propagateVersion); err != nil {
+	if err := propagationClient.Propagate(propagation.Spec.Deployment.Name, propagateVersion); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
-}
-
-func (r *PropagationReconciler) getPropagationBackendClient(ctx context.Context, propagation *v1alpha1.Propagation) (*clients.PropagationBackendOCIClient, error) {
-	protocol, err := propagation.Spec.Backend.Scheme()
-	if err != nil {
-		return nil, err
-	}
-	url, err := propagation.Spec.Backend.TrimScheme()
-	if err != nil {
-		return nil, err
-	}
-
-	secret := &corev1.Secret{}
-	if propagation.Spec.Backend.SecretRef != nil && propagation.Spec.Backend.SecretRef.Name != "" {
-		err = r.Client.Get(ctx, types.NamespacedName{
-			Name:      propagation.Spec.Backend.SecretRef.Name,
-			Namespace: propagation.Namespace,
-		}, secret)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	switch protocol {
-	case "oci":
-		repository, err := name.NewRepository(url)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse OCI repository: %w", err)
-		}
-
-		authConfig := &authn.AuthConfig{}
-		if secret.Data[corev1.DockerConfigJsonKey] != nil {
-			err = json.Unmarshal(secret.Data[corev1.DockerConfigJsonKey], authConfig)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse docker auth config: %w", err)
-			}
-		}
-
-		client := r.NewBackendClient(repository, []crane.Option{
-			crane.WithAuth(authn.FromConfig(*authConfig)),
-		})
-		clientKey := types.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
-		if existingClient, ok := r.BackendClients[clientKey]; ok {
-			client.DeploymentStatusesCache = existingClient.DeploymentStatusesCache
-			client.CurrentStatus = existingClient.CurrentStatus
-			client.CurrentVersion = existingClient.CurrentVersion
-		}
-		r.BackendClients[clientKey] = &client
-		return &client, nil
-	default:
-		return nil, fmt.Errorf("%s backend not supported", protocol)
-	}
-
 }
 
 func (r *PropagationReconciler) getVersion(ctx context.Context, propagation v1alpha1.Propagation) (string, error) {

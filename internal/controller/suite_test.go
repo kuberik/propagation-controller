@@ -19,18 +19,18 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
-	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +40,6 @@ import (
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/internal/controller/clients"
-	"github.com/kuberik/propagation-controller/pkg/oci/memory"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -54,7 +53,8 @@ var (
 	ctx       context.Context
 	cancel    context.CancelFunc
 
-	memoryOCIClient memory.MemoryOCIClient
+	registryServer   *httptest.Server
+	registryEndpoint string
 )
 
 func TestControllers(t *testing.T) {
@@ -102,16 +102,16 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	memoryOCIClient = memory.NewMemoryOCIClient()
 	err = (&PropagationReconciler{
-		Client: k8sManager.GetClient(),
-		Scheme: k8sManager.GetScheme(),
-		NewBackendClient: func(repository name.Repository, ociClient []crane.Option) clients.PropagationBackendOCIClient {
-			return clients.NewPropagationBackendOCIClient(repository, &memoryOCIClient)
-		},
-		BackendClients: make(map[types.NamespacedName]*clients.PropagationBackendOCIClient),
+		Client:               k8sManager.GetClient(),
+		Scheme:               k8sManager.GetScheme(),
+		PropagationClientset: clients.NewPropagationClientset(k8sClient),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
+
+	registry := registry.New()
+	registryServer = httptest.NewServer(registry)
+	registryEndpoint = strings.TrimPrefix(registryServer.URL, "http://")
 
 	go func() {
 		defer GinkgoRecover()
@@ -121,6 +121,7 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	registryServer.Close()
 	cancel()
 	By("tearing down the test environment")
 	err := testEnv.Stop()

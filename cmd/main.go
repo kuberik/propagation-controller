@@ -25,7 +25,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,13 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/google/go-containerregistry/pkg/name"
-	kuberikiov1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/internal/controller"
 	"github.com/kuberik/propagation-controller/internal/controller/clients"
-	"github.com/kuberik/propagation-controller/pkg/oci"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -52,7 +47,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	utilruntime.Must(kuberikiov1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -97,12 +91,9 @@ func main() {
 	}
 
 	if err = (&controller.PropagationReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		NewBackendClient: func(repository name.Repository, options []crane.Option) clients.PropagationBackendOCIClient {
-			return clients.NewPropagationBackendOCIClient(repository, &oci.CraneClient{Options: options})
-		},
-		BackendClients: make(map[types.NamespacedName]*clients.PropagationBackendOCIClient),
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		PropagationClientset: clients.NewPropagationClientset(mgr.GetClient()),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Propagation")
 		os.Exit(1)

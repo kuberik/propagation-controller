@@ -46,20 +46,20 @@ type PropagationBackend struct {
 	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 }
 
-func (backend PropagationBackend) Scheme() (string, error) {
-	u, err := url.Parse(backend.BaseUrl)
+func (pb PropagationBackend) Scheme() (string, error) {
+	u, err := url.Parse(string(pb.BaseUrl))
 	if err != nil {
 		return "", err
 	}
 	return u.Scheme, nil
 }
 
-func (backend PropagationBackend) TrimScheme() (string, error) {
-	scheme, err := backend.Scheme()
+func (pb PropagationBackend) TrimScheme() (string, error) {
+	scheme, err := pb.Scheme()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimPrefix(backend.BaseUrl, scheme+"://"), nil
+	return strings.TrimPrefix(string(pb.BaseUrl), scheme+"://"), nil
 }
 
 type Deployment struct {
