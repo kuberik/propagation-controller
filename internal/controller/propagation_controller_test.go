@@ -18,10 +18,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/crane"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/fake"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/static"
+	typescrane "github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -58,28 +63,36 @@ var _ = Describe("Propagation controller", func() {
 			ctx := context.Background()
 
 			By("Pushing manifests")
-			fakeDeploymentImage := func(deployment, version string) v1.Image {
-				return &fake.FakeImage{
-					ManifestStub: func() (*v1.Manifest, error) {
-						return &v1.Manifest{
-							Annotations: map[string]string{
-								"org.opencontainers.image.version": version,
-								"io.kuberik.deployment":            deployment,
-							},
-						}, nil
-					},
-				}
+			fakeDeploymentImage := func(deployment, version string) (v1.Image, error) {
+				return mutate.AppendLayers(empty.Image, static.NewLayer([]byte(fmt.Sprintf("%s/%s", deployment, version)), typescrane.MediaType("fake")))
 			}
-			devRev2Image := fakeDeploymentImage("frankfurt-dev-1", "rev-2")
-			stagingRev1Image := fakeDeploymentImage("frankfurt-staging-1", "rev-1")
-			stagingRev2Image := fakeDeploymentImage("frankfurt-staging-1", "rev-2")
+			devRev2Image, err := fakeDeploymentImage("frankfurt-dev-1", "rev-2")
+			Expect(err).ShouldNot(HaveOccurred())
+			stagingRev1Image, err := fakeDeploymentImage("frankfurt-staging-1", "rev-1")
+			Expect(err).ShouldNot(HaveOccurred())
+			stagingRev1ImageDigest, err := stagingRev1Image.Digest()
+			Expect(err).Should(Not(HaveOccurred()))
+			stagingRev2Image, err := fakeDeploymentImage("frankfurt-staging-1", "rev-2")
+			Expect(err).ShouldNot(HaveOccurred())
+			stagingRev2ImageDigest, err := stagingRev2Image.Digest()
+			Expect(err).Should(Not(HaveOccurred()))
 
-			memoryOCIClient.Push(devRev2Image, "registry.local/k8s/my-app/manifests/frankfurt-dev-1:rev-2")
-			memoryOCIClient.Push(stagingRev1Image, "registry.local/k8s/my-app/manifests/frankfurt-staging-1:rev-1")
-			memoryOCIClient.Push(stagingRev2Image, "registry.local/k8s/my-app/manifests/frankfurt-staging-1:rev-2")
+			Expect(
+				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:rev-2", registryEndpoint)),
+			).To(Succeed())
+			Expect(
+				crane.Push(stagingRev1Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-staging-1:rev-1", registryEndpoint)),
+			).To(Succeed())
+			Expect(
+				crane.Push(stagingRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-staging-1:rev-2", registryEndpoint)),
+			).To(Succeed())
 
-			memoryOCIClient.Push(devRev2Image, "registry.local/k8s/my-app/deploy/frankfurt-dev-1:latest")
-			memoryOCIClient.Push(stagingRev1Image, "registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
+			Expect(
+				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-dev-1:latest", registryEndpoint)),
+			).To(Succeed())
+			Expect(
+				crane.Push(stagingRev1Image, fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint)),
+			).To(Succeed())
 
 			By("By creating a new Propagation")
 
@@ -103,7 +116,7 @@ var _ = Describe("Propagation controller", func() {
 				},
 				Spec: v1alpha1.PropagationSpec{
 					Backend: v1alpha1.PropagationBackend{
-						BaseUrl: "oci://registry.local/k8s/my-app",
+						BaseUrl: fmt.Sprintf("oci://%s/k8s/my-app", registryEndpoint),
 					},
 					Deployment: v1alpha1.Deployment{
 						Name: "frankfurt-dev-1",
@@ -195,7 +208,7 @@ var _ = Describe("Propagation controller", func() {
 				},
 				Spec: v1alpha1.PropagationSpec{
 					Backend: v1alpha1.PropagationBackend{
-						BaseUrl: "oci://registry.local/k8s/my-app",
+						BaseUrl: fmt.Sprintf("oci://%s/k8s/my-app", registryEndpoint),
 					},
 					Deployment: v1alpha1.Deployment{
 						Name: "frankfurt-staging-1",
@@ -256,29 +269,38 @@ var _ = Describe("Propagation controller", func() {
 
 			By("Waiting for version rev-1 to be healthy for specified duration")
 
-			Consistently(func() v1.Image {
-				currentDeployImage, _ := memoryOCIClient.Pull("registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
-				return currentDeployImage
-			}, timeout, interval).Should(Equal(stagingRev1Image))
+			Consistently(func() (v1.Hash, error) {
+				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint))
+				if err != nil {
+					return v1.Hash{}, err
+				}
+				return currentDeployImage.Digest()
+			}, timeout, interval).Should(Equal(stagingRev1ImageDigest))
 
 			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(
 				time.Now().Add(-3*time.Hour - 59*time.Minute),
 			)
 			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
 
-			Consistently(func() v1.Image {
-				currentDeployImage, _ := memoryOCIClient.Pull("registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
-				return currentDeployImage
-			}, timeout, interval).Should(Equal(stagingRev1Image))
+			Consistently(func() (v1.Hash, error) {
+				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint))
+				if err != nil {
+					return v1.Hash{}, err
+				}
+				return currentDeployImage.Digest()
+			}, timeout, interval).Should(Equal(stagingRev1ImageDigest))
 
 			By("Propagating version")
 			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(time.Now().Add(-4 * time.Hour))
 			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
 
-			Eventually(func() v1.Image {
-				currentDeployImage, _ := memoryOCIClient.Pull("registry.local/k8s/my-app/deploy/frankfurt-staging-1:latest")
-				return currentDeployImage
-			}, timeout, interval).Should(Equal(stagingRev2Image))
+			Eventually(func() (v1.Hash, error) {
+				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint))
+				if err != nil {
+					return v1.Hash{}, err
+				}
+				return currentDeployImage.Digest()
+			}, timeout, interval).Should(Equal(stagingRev2ImageDigest))
 
 			// TODO: test version change
 		})

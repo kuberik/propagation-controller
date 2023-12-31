@@ -2,8 +2,12 @@ package clients
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"reflect"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -12,29 +16,112 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
-	"github.com/kuberik/propagation-controller/pkg/oci"
+	corev1 "k8s.io/api/core/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type PropagationBackendOCIClientFactory func(repository name.Repository, ociClient []crane.Option) PropagationBackendOCIClient
-
-type PropagationBackendOCIClient struct {
-	name.Repository
-	oci.OCIClient
-	DeploymentStatusesCache map[string]v1.Image
-	CurrentStatus           v1alpha1.DeploymentStatus
-	CurrentVersion          string
+type Artifact interface {
+	DigestString() (string, error)
+	Bytes() ([]byte, error)
 }
 
-func NewPropagationBackendOCIClient(repository name.Repository, client oci.OCIClient) PropagationBackendOCIClient {
-	return PropagationBackendOCIClient{
-		Repository:              repository,
-		OCIClient:               client,
-		DeploymentStatusesCache: make(map[string]v1.Image),
+type ArtifactType int
+
+const (
+	DeployStatusArtifactType ArtifactType = iota
+	ManifestArtifactType
+	DeployArtifactType
+)
+
+type ArtifactMetadata struct {
+	Deployment string
+	Type       ArtifactType
+	Version    string
+}
+
+type PropagationBackendClient interface {
+	Fetch(ArtifactMetadata) (Artifact, error)
+	Digest(ArtifactMetadata) (string, error)
+	Publish(ArtifactMetadata, Artifact) error
+	NewStatusArtifact(status v1alpha1.DeploymentStatus) (Artifact, error)
+}
+
+var _ Artifact = &ociArtifact{}
+
+type ociArtifact struct {
+	v1.Image
+}
+
+// DigestString implements Artifact.
+func (a *ociArtifact) DigestString() (string, error) {
+	digest, err := a.Digest()
+	return digest.String(), err
+}
+
+// Bytes implements Artifact.
+func (a *ociArtifact) Bytes() ([]byte, error) {
+	var extracted bytes.Buffer
+	err := crane.Export(a, &extracted)
+	return extracted.Bytes(), err
+}
+
+var _ PropagationBackendClient = &OCIPropagationBackendClient{}
+
+type OCIPropagationBackendClient struct {
+	repository name.Repository
+	options    []crane.Option
+}
+
+func NewOCIPropagationBackendClient(repository name.Repository, options ...crane.Option) OCIPropagationBackendClient {
+	return OCIPropagationBackendClient{
+		repository: repository,
+		options:    options,
 	}
-
 }
 
-func newStatusImage(status v1alpha1.DeploymentStatus) (v1.Image, error) {
+func (c *OCIPropagationBackendClient) ociTagFromArtifactMetadata(m ArtifactMetadata) string {
+	var subpath string
+	version := m.Version
+	switch m.Type {
+	case DeployStatusArtifactType:
+		subpath = "statuses"
+		version = name.DefaultTag
+	case ManifestArtifactType:
+		subpath = "manifests"
+	case DeployArtifactType:
+		version = name.DefaultTag
+		subpath = "deploy"
+	default:
+		panic("unknown artifact type")
+	}
+	return c.repository.Registry.Repo(c.repository.RepositoryStr(), subpath, m.Deployment).Tag(version).Name()
+}
+
+// Digest implements PropagationBackendClient.
+func (c *OCIPropagationBackendClient) Digest(m ArtifactMetadata) (string, error) {
+	return crane.Digest(c.ociTagFromArtifactMetadata(m), c.options...)
+}
+
+// Fetch implements PropagationBackendClient.
+func (c *OCIPropagationBackendClient) Fetch(m ArtifactMetadata) (Artifact, error) {
+	image, err := crane.Pull(c.ociTagFromArtifactMetadata(m), c.options...)
+	if err != nil {
+		return nil, err
+	}
+	return &ociArtifact{image}, err
+}
+
+// Publish implements PropagationBackendClient.
+func (c *OCIPropagationBackendClient) Publish(m ArtifactMetadata, a Artifact) error {
+	if ociArtifact, ok := a.(*ociArtifact); ok {
+		return crane.Push(ociArtifact.Image, c.ociTagFromArtifactMetadata(m), c.options...)
+	}
+	return fmt.Errorf("incompatible artifact for OCI client")
+}
+
+// NewStatusArtifact implements PropagationBackendClient.
+func (*OCIPropagationBackendClient) NewStatusArtifact(status v1alpha1.DeploymentStatus) (Artifact, error) {
 	statusesJSON, err := json.Marshal(status)
 	if err != nil {
 		return nil, err
@@ -45,91 +132,169 @@ func newStatusImage(status v1alpha1.DeploymentStatus) (v1.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return image, nil
+	return &ociArtifact{image}, nil
 }
 
-const (
-	statusesSubPath  = "statuses"
-	manifestsSubPath = "manifests"
-	deploySubPath    = "deploy"
-)
-
-func (c *PropagationBackendOCIClient) statusTag(deployment string) string {
-	return c.Repository.Registry.Repo(c.Repository.RepositoryStr(), statusesSubPath, deployment).Tag(name.DefaultTag).Name()
+type PropagationClientset struct {
+	k8sClient client.Client
+	clients   map[k8stypes.NamespacedName]*PropagationClient
 }
 
-func (c *PropagationBackendOCIClient) PublishStatus(deployment string, status v1alpha1.DeploymentStatus) error {
-	if status == c.CurrentStatus {
-		return nil
-	}
-	image, err := newStatusImage(status)
+func newPropagationBackendClient(baseUrl v1alpha1.PropagationBackend, secretData map[string][]byte) (PropagationBackendClient, error) {
+	protocol, err := baseUrl.Scheme()
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	if err := c.OCIClient.Push(image, c.statusTag(deployment)); err != nil {
-		return err
-	}
-	c.CurrentStatus = status
-	return nil
-}
-
-func extractStatus(image v1.Image) (*v1alpha1.DeploymentStatus, error) {
-	var extracted bytes.Buffer
-	err := crane.Export(image, &extracted)
+	url, err := baseUrl.TrimScheme()
 	if err != nil {
 		return nil, err
 	}
 
-	result := &v1alpha1.DeploymentStatus{}
-	err = json.Unmarshal(extracted.Bytes(), result)
-	if err != nil {
-		return nil, err
+	switch protocol {
+	case "oci":
+		repository, err := name.NewRepository(url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OCI repository: %w", err)
+		}
+
+		authConfig := &authn.AuthConfig{}
+		if secretData[corev1.DockerConfigJsonKey] != nil {
+			err = json.Unmarshal(secretData[corev1.DockerConfigJsonKey], authConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse docker auth config: %w", err)
+			}
+		}
+
+		return &OCIPropagationBackendClient{
+			repository: repository,
+			options: []crane.Option{
+				crane.WithAuth(authn.FromConfig(*authConfig)),
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("%s backend not supported", protocol)
 	}
-	return result, nil
 }
 
-func (c *PropagationBackendOCIClient) GetStatus(deployment string) (*v1alpha1.DeploymentStatus, error) {
-	statusTag := c.statusTag(deployment)
-	if cachedStatus, ok := c.DeploymentStatusesCache[deployment]; ok {
-		cachedDigest, digestErr := cachedStatus.Digest()
-		remoteDigest, err := c.OCIClient.Digest(statusTag)
-		if err == nil && digestErr == nil && remoteDigest == cachedDigest.String() {
-			return extractStatus(cachedStatus)
+func NewPropagationClientset(k8sClient client.Client) PropagationClientset {
+	clientset := PropagationClientset{
+		clients:   make(map[k8stypes.NamespacedName]*PropagationClient),
+		k8sClient: k8sClient,
+	}
+	return clientset
+}
+
+func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, error) {
+	secret := &corev1.Secret{}
+	if propagation.Spec.Backend.SecretRef != nil && propagation.Spec.Backend.SecretRef.Name != "" {
+		err := pc.k8sClient.Get(context.TODO(), k8stypes.NamespacedName{
+			Name:      propagation.Spec.Backend.SecretRef.Name,
+			Namespace: propagation.Namespace,
+		}, secret)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	image, err := c.OCIClient.Pull(statusTag)
+	key := k8stypes.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
+	newBackendClient, err := newPropagationBackendClient(propagation.Spec.Backend, secret.Data)
+	if err != nil {
+		return nil, err
+	}
+	if c, ok := pc.clients[key]; ok && reflect.DeepEqual(c, newBackendClient) {
+		return c, nil
+	}
+	client := NewPropagationClient(newBackendClient)
+	pc.clients[key] = &client
+	return &client, nil
+}
+
+type PropagationClient struct {
+	client PropagationBackendClient
+	cache  propagationClientCache
+}
+
+type propagationClientCache struct {
+	deploymentStatuses map[string]Artifact
+	publishedStatus    v1alpha1.DeploymentStatus
+	propagatedVersion  string
+}
+
+func NewPropagationClient(client PropagationBackendClient) PropagationClient {
+	return PropagationClient{
+		client: client,
+		cache: propagationClientCache{
+			deploymentStatuses: make(map[string]Artifact),
+		},
+	}
+}
+
+func (c *PropagationClient) PublishStatus(deployment string, status v1alpha1.DeploymentStatus) error {
+	if status == c.cache.publishedStatus {
+		return nil
+	}
+	artifact, err := c.client.NewStatusArtifact(status)
+	if err != nil {
+		return err
+	}
+
+	if err := c.client.Publish(ArtifactMetadata{Deployment: deployment, Type: DeployStatusArtifactType}, artifact); err != nil {
+		return err
+	}
+	c.cache.publishedStatus = status
+	return nil
+}
+
+func (c *PropagationClient) GetStatus(deployment string) (*v1alpha1.DeploymentStatus, error) {
+	artifactMetadata := ArtifactMetadata{Type: DeployStatusArtifactType, Deployment: deployment}
+	var artifact Artifact
+	if cachedStatus, ok := c.cache.deploymentStatuses[deployment]; ok {
+		cachedDigest, digestErr := cachedStatus.DigestString()
+		remoteDigest, err := c.client.Digest(artifactMetadata)
+		if err == nil && digestErr == nil && remoteDigest == cachedDigest {
+			artifact = cachedStatus
+		}
+	}
+
+	var err error
+	if artifact == nil {
+		artifact, err = c.client.Fetch(artifactMetadata)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	artifactData, err := artifact.Bytes()
 	if err != nil {
 		return nil, err
 	}
 
-	status, err := extractStatus(image)
-	if err != nil {
+	status := &v1alpha1.DeploymentStatus{}
+	if err := json.Unmarshal(artifactData, status); err != nil {
 		return nil, err
 	}
 
-	c.DeploymentStatusesCache[deployment] = image
+	c.cache.deploymentStatuses[deployment] = artifact
 	return status, nil
 }
 
-func (c *PropagationBackendOCIClient) Propagate(deployment, version string) error {
-	if version == c.CurrentVersion {
+func (c *PropagationClient) Propagate(deployment, version string) error {
+	if version == c.cache.propagatedVersion {
 		return nil
 	}
-	image, err := c.OCIClient.Pull(
-		c.Repository.Registry.Repo(c.Repository.RepositoryStr(), manifestsSubPath, deployment).Tag(version).Name(),
+	artifact, err := c.client.Fetch(
+		ArtifactMetadata{Type: ManifestArtifactType, Deployment: deployment, Version: version},
 	)
 	if err != nil {
 		return err
 	}
 
-	if err := c.OCIClient.Push(
-		image,
-		c.Repository.Registry.Repo(c.Repository.RepositoryStr(), deploySubPath, deployment).Tag(name.DefaultTag).Name(),
+	if err := c.client.Publish(
+		ArtifactMetadata{Type: DeployArtifactType, Deployment: deployment},
+		artifact,
 	); err != nil {
 		return err
 	}
-	c.CurrentVersion = version
+	c.cache.propagatedVersion = version
 	return nil
 }
