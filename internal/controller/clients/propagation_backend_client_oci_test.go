@@ -162,7 +162,7 @@ func TestPropagate(t *testing.T) {
 		Deployment: "staging",
 		Type:       ManifestArtifactType,
 		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
-	}, &OCIArtifact{empty.Image})
+	}, &ociArtifact{empty.Image})
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(
@@ -203,7 +203,7 @@ func TestPropagateCached(t *testing.T) {
 		Deployment: "staging",
 		Type:       ManifestArtifactType,
 		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
-	}, &OCIArtifact{empty.Image})
+	}, &ociArtifact{empty.Image})
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(
