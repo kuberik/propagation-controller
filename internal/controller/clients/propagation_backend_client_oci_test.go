@@ -134,8 +134,7 @@ func TestGetStatusOCICached(t *testing.T) {
 	assert.Equal(t, initialStatus, *status)
 	assert.Equal(t, "/v2/", requestLog[requestCount].URL.Path)
 	assert.Equal(t, "/v2/deployments/foo/statuses/prod/manifests/latest", requestLog[requestCount+1].URL.Path)
-	assert.Equal(t, "/v2/deployments/foo/statuses/prod/blobs/sha256:8b0cdb59e7069b05fc814f20182fdbb393101a7f7f9ba63f114516c275b056cc", requestLog[requestCount+2].URL.Path)
-	assert.Equal(t, requestCount+3, len(requestLog))
+	assert.Equal(t, requestCount+2, len(requestLog))
 
 	nextStatus := v1alpha1.DeploymentStatus{
 		Version: "b",
@@ -162,7 +161,7 @@ func TestPropagate(t *testing.T) {
 		Deployment: "staging",
 		Type:       ManifestArtifactType,
 		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
-	}, &ociArtifact{empty.Image})
+	}, &ociArtifact{image: empty.Image})
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(
@@ -203,7 +202,7 @@ func TestPropagateCached(t *testing.T) {
 		Deployment: "staging",
 		Type:       ManifestArtifactType,
 		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
-	}, &ociArtifact{empty.Image})
+	}, &ociArtifact{image: empty.Image})
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(

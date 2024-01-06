@@ -50,20 +50,28 @@ type PropagationBackendClient interface {
 var _ Artifact = &ociArtifact{}
 
 type ociArtifact struct {
-	v1.Image
+	image v1.Image
+	data  []byte
 }
 
 // DigestString implements Artifact.
 func (a *ociArtifact) DigestString() (string, error) {
-	digest, err := a.Digest()
+	digest, err := a.image.Digest()
 	return digest.String(), err
 }
 
 // Bytes implements Artifact.
 func (a *ociArtifact) Bytes() ([]byte, error) {
+	if a.data != nil {
+		return a.data, nil
+	}
 	var extracted bytes.Buffer
-	err := crane.Export(a, &extracted)
-	return extracted.Bytes(), err
+	err := crane.Export(a.image, &extracted)
+	if err != nil {
+		return nil, err
+	}
+	a.data = extracted.Bytes()
+	return a.data, nil
 }
 
 var _ PropagationBackendClient = &OCIPropagationBackendClient{}
@@ -109,13 +117,13 @@ func (c *OCIPropagationBackendClient) Fetch(m ArtifactMetadata) (Artifact, error
 	if err != nil {
 		return nil, err
 	}
-	return &ociArtifact{image}, err
+	return &ociArtifact{image: image}, err
 }
 
 // Publish implements PropagationBackendClient.
 func (c *OCIPropagationBackendClient) Publish(m ArtifactMetadata, a Artifact) error {
 	if ociArtifact, ok := a.(*ociArtifact); ok {
-		return crane.Push(ociArtifact.Image, c.ociTagFromArtifactMetadata(m), c.options...)
+		return crane.Push(ociArtifact.image, c.ociTagFromArtifactMetadata(m), c.options...)
 	}
 	return fmt.Errorf("incompatible artifact for OCI client")
 }
@@ -132,7 +140,7 @@ func (*OCIPropagationBackendClient) NewStatusArtifact(status v1alpha1.Deployment
 	if err != nil {
 		return nil, err
 	}
-	return &ociArtifact{image}, nil
+	return &ociArtifact{image: image}, nil
 }
 
 type PropagationClientset struct {
