@@ -78,13 +78,12 @@ var _ PropagationBackendClient = &OCIPropagationBackendClient{}
 
 type OCIPropagationBackendClient struct {
 	repository name.Repository
-	options    []crane.Option
+	auth       *authn.AuthConfig
 }
 
-func NewOCIPropagationBackendClient(repository name.Repository, options ...crane.Option) OCIPropagationBackendClient {
+func NewOCIPropagationBackendClient(repository name.Repository) OCIPropagationBackendClient {
 	return OCIPropagationBackendClient{
 		repository: repository,
-		options:    options,
 	}
 }
 
@@ -108,12 +107,12 @@ func (c *OCIPropagationBackendClient) ociTagFromArtifactMetadata(m ArtifactMetad
 
 // Digest implements PropagationBackendClient.
 func (c *OCIPropagationBackendClient) Digest(m ArtifactMetadata) (string, error) {
-	return crane.Digest(c.ociTagFromArtifactMetadata(m), c.options...)
+	return crane.Digest(c.ociTagFromArtifactMetadata(m), c.options()...)
 }
 
 // Fetch implements PropagationBackendClient.
 func (c *OCIPropagationBackendClient) Fetch(m ArtifactMetadata) (Artifact, error) {
-	image, err := crane.Pull(c.ociTagFromArtifactMetadata(m), c.options...)
+	image, err := crane.Pull(c.ociTagFromArtifactMetadata(m), c.options()...)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +122,7 @@ func (c *OCIPropagationBackendClient) Fetch(m ArtifactMetadata) (Artifact, error
 // Publish implements PropagationBackendClient.
 func (c *OCIPropagationBackendClient) Publish(m ArtifactMetadata, a Artifact) error {
 	if ociArtifact, ok := a.(*ociArtifact); ok {
-		return crane.Push(ociArtifact.image, c.ociTagFromArtifactMetadata(m), c.options...)
+		return crane.Push(ociArtifact.image, c.ociTagFromArtifactMetadata(m), c.options()...)
 	}
 	return fmt.Errorf("incompatible artifact for OCI client")
 }
@@ -141,6 +140,14 @@ func (*OCIPropagationBackendClient) NewStatusArtifact(status v1alpha1.Deployment
 		return nil, err
 	}
 	return &ociArtifact{image: image}, nil
+}
+
+func (c *OCIPropagationBackendClient) options() []crane.Option {
+	options := []crane.Option{}
+	if c.auth != nil {
+		options = append(options, crane.WithAuth(authn.FromConfig(*c.auth)))
+	}
+	return options
 }
 
 type PropagationClientset struct {
@@ -171,13 +178,13 @@ func newPropagationBackendClient(baseUrl v1alpha1.PropagationBackend, secretData
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse docker auth config: %w", err)
 			}
+		} else {
+			authConfig = nil
 		}
 
 		return &OCIPropagationBackendClient{
 			repository: repository,
-			options: []crane.Option{
-				crane.WithAuth(authn.FromConfig(*authConfig)),
-			},
+			auth:       authConfig,
 		}, nil
 	default:
 		return nil, fmt.Errorf("%s backend not supported", protocol)
@@ -209,7 +216,7 @@ func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*
 	if err != nil {
 		return nil, err
 	}
-	if c, ok := pc.clients[key]; ok && reflect.DeepEqual(c, newBackendClient) {
+	if c, ok := pc.clients[key]; ok && reflect.DeepEqual(c.client, newBackendClient) {
 		return c, nil
 	}
 	client := NewPropagationClient(newBackendClient)

@@ -15,6 +15,7 @@ import (
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func localRegistry(intercepts ...http.Handler) *httptest.Server {
@@ -54,7 +55,6 @@ func TestPublishStatusOCI(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TODO: wrap the handler registryServer to snoop which requests have been called
 func TestPublishStatusOCICached(t *testing.T) {
 	input := v1alpha1.DeploymentStatus{
 		Version: "a",
@@ -67,14 +67,31 @@ func TestPublishStatusOCICached(t *testing.T) {
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
 
-	ociClient := NewOCIPropagationBackendClient(repository)
-	client := NewPropagationClient(&ociClient)
+	propagationClientset := NewPropagationClientset(fake.NewFakeClient())
+	propagation := v1alpha1.Propagation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "bar",
+		},
+		Spec: v1alpha1.PropagationSpec{
+			Backend: v1alpha1.PropagationBackend{
+				BaseUrl: fmt.Sprintf("oci://%s", repository),
+			},
+		},
+	}
+	client, err := propagationClientset.Propagation(propagation)
+	assert.NoError(t, err)
 
 	err = client.PublishStatus("staging-frankfurt-1", input)
 	assert.NoError(t, err)
 
 	requestCount := len(requestLog)
 
+	// reinitialie client to check if caching is in effect
+	client, err = propagationClientset.Propagation(propagation)
+	assert.NoError(t, err)
+
+	// cached call
 	err = client.PublishStatus("staging-frankfurt-1", input)
 	assert.NoError(t, err)
 	assert.Equal(t, requestCount, len(requestLog))
@@ -120,13 +137,30 @@ func TestGetStatusOCICached(t *testing.T) {
 	err = clientPublisher.PublishStatus("prod", initialStatus)
 	assert.NoError(t, err)
 
-	ociClientGetter := NewOCIPropagationBackendClient(repository)
-	clientGetter := NewPropagationClient(&ociClientGetter)
+	propagationClientset := NewPropagationClientset(fake.NewFakeClient())
+	propagation := v1alpha1.Propagation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "bar",
+		},
+		Spec: v1alpha1.PropagationSpec{
+			Backend: v1alpha1.PropagationBackend{
+				BaseUrl: fmt.Sprintf("oci://%s", repository),
+			},
+		},
+	}
+	clientGetter, err := propagationClientset.Propagation(propagation)
+	assert.NoError(t, err)
+
 	status, err := clientGetter.GetStatus("prod")
 	assert.NoError(t, err)
 	assert.Equal(t, initialStatus, *status)
 
 	requestCount := len(requestLog)
+
+	// reinitialie client to check if caching is in effect
+	clientGetter, err = propagationClientset.Propagation(propagation)
+	assert.NoError(t, err)
 
 	// cached call
 	status, err = clientGetter.GetStatus("prod")
@@ -196,13 +230,27 @@ func TestPropagateCached(t *testing.T) {
 	assert.NoError(t, err)
 
 	ociClient := NewOCIPropagationBackendClient(repository)
-	client := NewPropagationClient(&ociClient)
 
 	err = ociClient.Publish(ArtifactMetadata{
 		Deployment: "staging",
 		Type:       ManifestArtifactType,
 		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
 	}, &ociArtifact{image: empty.Image})
+	assert.NoError(t, err)
+
+	propagationClientset := NewPropagationClientset(fake.NewFakeClient())
+	propagation := v1alpha1.Propagation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "bar",
+		},
+		Spec: v1alpha1.PropagationSpec{
+			Backend: v1alpha1.PropagationBackend{
+				BaseUrl: fmt.Sprintf("oci://%s", repository),
+			},
+		},
+	}
+	client, err := propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(
@@ -218,6 +266,11 @@ func TestPropagateCached(t *testing.T) {
 
 	requestCount := len(requestLog)
 
+	// reinitialie client to check if caching is in effect
+	client, err = propagationClientset.Propagation(propagation)
+	assert.NoError(t, err)
+
+	// cached call
 	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
 	assert.NoError(t, err)
 	assert.Equal(t, requestCount, len(requestLog))
