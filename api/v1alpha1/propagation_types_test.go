@@ -370,7 +370,8 @@ func TestNextVersion(t *testing.T) {
 	}{{
 		name: "no candidate",
 		propagation: Propagation{
-			Spec: PropagationSpec{
+			Spec: PropagationSpec{},
+			Status: PropagationStatus{
 				DeployAfter: DeployAfter{
 					Deployments: []string{
 						"prod-eu1",
@@ -379,20 +380,20 @@ func TestNextVersion(t *testing.T) {
 						Duration: time.Hour * 4,
 					},
 				},
-			},
-			Status: PropagationStatus{DeploymentStatusesReports: []DeploymentStatusesReport{{
-				DeploymentName: "prod-eu1",
-				Statuses: []DeploymentStatus{{
-					Start:   metav1.NewTime(testStartTime),
-					Version: "rev-1",
-					State:   HealthStateHealthy,
-				}},
-			}}},
+				DeploymentStatusesReports: []DeploymentStatusesReport{{
+					DeploymentName: "prod-eu1",
+					Statuses: []DeploymentStatus{{
+						Start:   metav1.NewTime(testStartTime),
+						Version: "rev-1",
+						State:   HealthStateHealthy,
+					}},
+				}}},
 		},
 	}, {
 		name: "single candidate valid",
 		propagation: Propagation{
-			Spec: PropagationSpec{
+			Spec: PropagationSpec{},
+			Status: PropagationStatus{
 				DeployAfter: DeployAfter{
 					Deployments: []string{
 						"prod-eu1",
@@ -401,21 +402,21 @@ func TestNextVersion(t *testing.T) {
 						Duration: time.Hour * 4,
 					},
 				},
-			},
-			Status: PropagationStatus{DeploymentStatusesReports: []DeploymentStatusesReport{{
-				DeploymentName: "prod-eu1",
-				Statuses: []DeploymentStatus{{
-					Start:   metav1.NewTime(testStartTime.Add(-time.Hour * 4)),
-					Version: "rev-1",
-					State:   HealthStateHealthy,
-				}},
-			}}},
+				DeploymentStatusesReports: []DeploymentStatusesReport{{
+					DeploymentName: "prod-eu1",
+					Statuses: []DeploymentStatus{{
+						Start:   metav1.NewTime(testStartTime.Add(-time.Hour * 4)),
+						Version: "rev-1",
+						State:   HealthStateHealthy,
+					}},
+				}}},
 		},
 		want: "rev-1",
 	}, {
 		name: "one candidate valid, one invalid",
 		propagation: Propagation{
-			Spec: PropagationSpec{
+			Spec: PropagationSpec{},
+			Status: PropagationStatus{
 				DeployAfter: DeployAfter{
 					Deployments: []string{
 						"prod-eu1",
@@ -424,19 +425,18 @@ func TestNextVersion(t *testing.T) {
 						Duration: time.Hour * 4,
 					},
 				},
-			},
-			Status: PropagationStatus{DeploymentStatusesReports: []DeploymentStatusesReport{{
-				DeploymentName: "prod-eu1",
-				Statuses: []DeploymentStatus{{
-					Start:   metav1.NewTime(testStartTime.Add(-time.Hour * 4)),
-					Version: "rev-1",
-					State:   HealthStateHealthy,
-				}, {
-					Start:   metav1.NewTime(testStartTime.Add(-time.Hour * 2)),
-					Version: "rev-2",
-					State:   HealthStateHealthy,
-				}},
-			}}},
+				DeploymentStatusesReports: []DeploymentStatusesReport{{
+					DeploymentName: "prod-eu1",
+					Statuses: []DeploymentStatus{{
+						Start:   metav1.NewTime(testStartTime.Add(-time.Hour * 4)),
+						Version: "rev-1",
+						State:   HealthStateHealthy,
+					}, {
+						Start:   metav1.NewTime(testStartTime.Add(-time.Hour * 2)),
+						Version: "rev-2",
+						State:   HealthStateHealthy,
+					}},
+				}}},
 		},
 		want: "rev-1",
 	}}

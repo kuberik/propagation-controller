@@ -28,9 +28,8 @@ import (
 
 // PropagationSpec defines the desired state of Propagation
 type PropagationSpec struct {
-	Backend     PropagationBackend `json:"backend,omitempty"`
-	Deployment  Deployment         `json:"deployment,omitempty"`
-	DeployAfter DeployAfter        `json:"deployAfter,omitempty"`
+	Backend    PropagationBackend `json:"backend,omitempty"`
+	Deployment Deployment         `json:"deployment,omitempty"`
 }
 
 type PropagationBackend struct {
@@ -63,11 +62,17 @@ func (pb PropagationBackend) TrimScheme() (string, error) {
 }
 
 type Deployment struct {
+	// [!CAUTION]
+	// Not implemented!
+	//
 	// Propagation will not proceed if, as a result of propagation, there will be more than two active versions
-	// deployed across the deployments within the same deployment group. This can be used if there are multiple sites
+	// deployed across the deployments within the same environment. This can be used if there are multiple sites
 	// which are deployed separately but represent the same environment. In that case the rollout of a single version
 	// can be preformed across all sites before starting a rollout for a newer version.
-	GroupWith []string `json:"groupWith,omitempty"`
+	Environment string `json:"groupWith,omitempty"`
+
+	// TODO:
+	Wave int `json:"wave,omitempty"`
 
 	// Name of the deployment. This value can be used in other Propagations to determine the order in which the
 	// deployments are propagated.
@@ -77,7 +82,10 @@ type Deployment struct {
 	// +optional
 	Version LocalObjectField `json:"version,omitempty"`
 
-	// TODO:
+	// [!CAUTION]
+	// Not implemented!
+	//
+	// Selector for Health objects which will be taken into account to determine if the deployment is healthy or not.
 	HealthSelector HealthSelector `json:"healthSelector,omitempty"`
 
 	// Specify for how long the history of healths will be kept. This needs to be at least larger than
@@ -100,9 +108,7 @@ type DeployAfter struct {
 	// a healthy version for the specified amount of time.
 	Deployments []string `json:"deployments,omitempty"`
 
-	// TODO:
-	// Groups []string `json:"groups,omitempty"`
-
+	// TODO: rename to bake time
 	// Propagtion will only be performed after all the deployments specified as dependencies report
 	// continous healthy states for the specifed duration.
 	// In case there's multiple versions satisfying the condition the newest one will be used.
@@ -140,6 +146,7 @@ type PropagationStatus struct {
 	DeploymentStatus          DeploymentStatus           `json:"deploymentStatus,omitempty"`
 	Conditions                []metav1.Condition         `json:"conditions,omitempty"`
 	DeploymentStatusesReports []DeploymentStatusesReport `json:"deploymentStatusesReports,omitempty"`
+	DeployAfter               DeployAfter                `json:"deployAfter,omitempty"`
 }
 
 func (s *PropagationStatus) FindDeploymentStatusReport(deployment string) *DeploymentStatusesReport {
@@ -233,7 +240,7 @@ func (p *Propagation) NextVersion() string {
 versions:
 	for _, v := range versions {
 		for _, r := range p.Status.DeploymentStatusesReports {
-			if p.Spec.DeployAfter.Interval.Duration > r.VersionHealthyDuration(v) {
+			if p.Status.DeployAfter.Interval.Duration > r.VersionHealthyDuration(v) {
 				continue versions
 			}
 		}

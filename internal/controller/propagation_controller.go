@@ -124,8 +124,8 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// if status healthy, propagate
 	// 1. fetch statuses
 	var getStatusErrors errgroup.Group
-	reports := make([]v1alpha1.DeploymentStatusesReport, len(propagation.Spec.DeployAfter.Deployments))
-	for i, deployment := range propagation.Spec.DeployAfter.Deployments {
+	reports := make([]v1alpha1.DeploymentStatusesReport, len(propagation.Status.DeployAfter.Deployments))
+	for i, deployment := range propagation.Status.DeployAfter.Deployments {
 		report := propagation.Status.FindDeploymentStatusReport(deployment)
 		if report == nil {
 			report = &v1alpha1.DeploymentStatusesReport{
