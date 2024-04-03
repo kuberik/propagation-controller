@@ -74,8 +74,7 @@ type Deployment struct {
 	// TODO:
 	Wave int `json:"wave,omitempty"`
 
-	// Name of the deployment. This value can be used in other Propagations to determine the order in which the
-	// deployments are propagated.
+	// Name of the deployment.
 	Name string `json:"name,omitempty"`
 
 	// Reads the exact version that was deployed so that accurate version can be published in the status.
