@@ -219,15 +219,25 @@ var _ = Describe("Propagation controller", func() {
 							FieldPath:  "data.version",
 						},
 					},
-					DeployAfter: v1alpha1.DeployAfter{
-						Deployments: []string{
-							"frankfurt-dev-1",
-						},
-						Interval: metav1.Duration{Duration: 4 * time.Hour},
-					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, propagationStaging)).Should(Succeed())
+
+			// TODO: Replace when fetching status is implemented
+			Eventually(func() error {
+				k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: propagationStaging.Namespace,
+					Name:      propagationStaging.Name,
+				}, propagationStaging)
+				propagationStaging.Status.DeployAfter = v1alpha1.DeployAfter{
+					Deployments: []string{
+						"frankfurt-dev-1",
+					},
+					Interval: metav1.Duration{Duration: 4 * time.Hour},
+				}
+				return k8sClient.Status().Update(ctx, propagationStaging)
+			}, timeout, interval).Should(Succeed())
+			k8sClient.Status().Update(ctx, propagationStaging)
 
 			By("By creating a new ConfigMap with deployed version of staging Propagation")
 			deployedStagingVersionConfigMap := &corev1.ConfigMap{
