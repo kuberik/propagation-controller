@@ -62,14 +62,11 @@ func (pb PropagationBackend) TrimScheme() (string, error) {
 }
 
 type Deployment struct {
-	// [!CAUTION]
-	// Not implemented!
-	//
 	// Propagation will not proceed if, as a result of propagation, there will be more than two active versions
 	// deployed across the deployments within the same environment. This can be used if there are multiple sites
-	// which are deployed separately but represent the same environment. In that case the rollout of a single version
-	// can be preformed across all sites before starting a rollout for a newer version.
-	Environment string `json:"groupWith,omitempty"`
+	// which are deployed after each other (see Waves) but represent the same environment. In that case the rollout
+	// of a single version can be preformed across all sites before starting a rollout for a newer version.
+	Environment string `json:"environment,omitempty"`
 
 	// TODO:
 	Wave int `json:"wave,omitempty"`
@@ -86,13 +83,6 @@ type Deployment struct {
 	//
 	// Selector for Health objects which will be taken into account to determine if the deployment is healthy or not.
 	HealthSelector HealthSelector `json:"healthSelector,omitempty"`
-
-	// Specify for how long the history of healths will be kept. This needs to be at least larger than
-	// `spec.deployAfter.interval` of deployments which are deployed after this one.
-	// +kubebuilder:validation:Type=string
-	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
-	// +required
-	HealthHistoryDurationLimit metav1.Duration `json:"healthHistoryDurationLimit,omitempty"`
 }
 
 type HealthSelector struct {
@@ -114,7 +104,7 @@ type DeployAfter struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +required
-	Interval metav1.Duration `json:"interval,omitempty"`
+	BakeTime metav1.Duration `json:"bakeTime,omitempty"`
 }
 
 type LocalObjectField struct {
@@ -239,7 +229,7 @@ func (p *Propagation) NextVersion() string {
 versions:
 	for _, v := range versions {
 		for _, r := range p.Status.DeploymentStatusesReports {
-			if p.Status.DeployAfter.Interval.Duration > r.VersionHealthyDuration(v) {
+			if p.Status.DeployAfter.BakeTime.Duration > r.VersionHealthyDuration(v) {
 				continue versions
 			}
 		}

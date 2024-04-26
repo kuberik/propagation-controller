@@ -16,6 +16,8 @@ type Environment struct {
 
 type Wave struct {
 	BakeTime metav1.Duration `json:"bakeTime,omitempty"`
+	// TODO: this should be populated from manifests
+	Deployments []string `json:"deployments,omitempty"`
 }
 
 type ReleaseCadence struct {

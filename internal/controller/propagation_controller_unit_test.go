@@ -19,8 +19,10 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/pkg/repo/config"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -267,4 +269,118 @@ func TestGetVersion(t *testing.T) {
 
 		})
 	}
+}
+
+func TestSetDeployAfterFromConfig(t *testing.T) {
+	configFull := config.Config{
+		Environments: []config.Environment{{
+			Name: "dev",
+			Waves: []config.Wave{{
+				BakeTime: metav1.Duration{Duration: time.Hour},
+				Deployments: []string{
+					"frankfurt-dev-1",
+				},
+			}},
+			ReleaseCadence: config.ReleaseCadence{
+				WaitTime: metav1.Duration{Duration: 2 * time.Hour},
+			},
+		}, {
+			Name: "production",
+			Waves: []config.Wave{{
+				BakeTime: metav1.Duration{Duration: time.Hour},
+				Deployments: []string{
+					"frankfurt-production-1",
+				},
+			}},
+			ReleaseCadence: config.ReleaseCadence{
+				// At 08:00 on Monday.
+				Schedule: "0 8 * * 1",
+			},
+		}},
+	}
+	// configProdOnly := config.Config{
+	// 	Environments: []config.Environment{{
+	// 		Name: "production",
+	// 		Waves: []config.Wave{{
+	// 			BakeTime: metav1.Duration{Duration: time.Hour},
+	// 			Deployments: []string{
+	// 				"frankfurt-production-1",
+	// 			},
+	// 		}},
+	// 		ReleaseCadence: config.ReleaseCadence{
+	// 			// At 08:00 on Monday.
+	// 			Schedule: "0 8 * * 1",
+	// 		},
+	// 	}},
+	// }
+
+	testCases := []struct {
+		name    string
+		input   v1alpha1.Deployment
+		want    v1alpha1.DeployAfter
+		config  config.Config
+		wantErr bool
+	}{{
+		name:   "full config prod",
+		config: configFull,
+		input: v1alpha1.Deployment{
+			Name:        "frankfurt-production-1",
+			Environment: "production",
+			Wave:        1,
+		},
+		want: v1alpha1.DeployAfter{
+			Deployments: []string{
+				"frankfurt-dev-1",
+			},
+			BakeTime: metav1.Duration{Duration: time.Hour},
+		},
+	}, {
+		name:   "full config wrong wave",
+		config: configFull,
+		input: v1alpha1.Deployment{
+			Name:        "frankfurt-production-1",
+			Environment: "production",
+			Wave:        2,
+		},
+		wantErr: true,
+		// TODO: test first environment. propagates from where?
+	}, {
+		name:   "full config missing wave",
+		config: configFull,
+		input: v1alpha1.Deployment{
+			Name:        "frankfurt-production-1",
+			Environment: "production",
+			Wave:        2,
+		},
+		wantErr: true,
+	}, {
+		name:   "full config missing env",
+		config: configFull,
+		input: v1alpha1.Deployment{
+			Name:        "frankfurt-production-1",
+			Environment: "non-existant",
+			Wave:        1,
+		},
+		wantErr: true,
+		// TODO: test first environment. propagates from where?
+		// TODO: test missing wave
+		// TODO: test missing environment
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			deployAfter, err := deployAfterFromConfig(v1alpha1.Propagation{
+				Spec: v1alpha1.PropagationSpec{
+					Deployment: tc.input,
+				},
+			}, tc.config)
+			assert.Equal(t, err != nil, tc.wantErr)
+			if !tc.wantErr {
+				assert.Equal(t, tc.want, *deployAfter)
+			} else {
+				assert.Nil(t, deployAfter)
+			}
+		})
+	}
+
 }

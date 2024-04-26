@@ -109,6 +109,7 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	// TODO: run this in BeforeEach instead
 	registry := registry.New()
 	registryServer = httptest.NewServer(registry)
 	registryEndpoint = strings.TrimPrefix(registryServer.URL, "http://")

@@ -376,7 +376,7 @@ func TestNextVersion(t *testing.T) {
 					Deployments: []string{
 						"prod-eu1",
 					},
-					Interval: metav1.Duration{
+					BakeTime: metav1.Duration{
 						Duration: time.Hour * 4,
 					},
 				},
@@ -398,7 +398,7 @@ func TestNextVersion(t *testing.T) {
 					Deployments: []string{
 						"prod-eu1",
 					},
-					Interval: metav1.Duration{
+					BakeTime: metav1.Duration{
 						Duration: time.Hour * 4,
 					},
 				},
@@ -421,7 +421,7 @@ func TestNextVersion(t *testing.T) {
 					Deployments: []string{
 						"prod-eu1",
 					},
-					Interval: metav1.Duration{
+					BakeTime: metav1.Duration{
 						Duration: time.Hour * 4,
 					},
 				},
