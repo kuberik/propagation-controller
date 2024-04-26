@@ -23,6 +23,7 @@ import (
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/pkg/clients"
+	"github.com/kuberik/propagation-controller/pkg/repo/config"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	kyaml_utils "sigs.k8s.io/kustomize/kyaml/utils"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
+)
+
+type PropagationReadyReason string
+
+const (
+	BackendInitFailedPropagationReadyReason PropagationReadyReason = "BackendInitFailed"
+	ConfigInitFailedPropagationReadyReason  PropagationReadyReason = "ConfigInitFailed"
+	VersionMissingPropagationReadyReason    PropagationReadyReason = "VersionMissing"
+	ReadyPropagationReadyReason             PropagationReadyReason = "Ready"
 )
 
 // PropagationReconciler reconciles a Propagation object
@@ -58,30 +68,28 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	propagationClient, err := r.Propagation(*propagation)
+	propagationClient, propagationConfigClient, err := r.Propagation(*propagation)
 	if err != nil {
-		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
-			Type:               v1alpha1.ReadyCondition,
-			Message:            err.Error(),
-			Status:             metav1.ConditionFalse,
-			ObservedGeneration: propagation.Generation,
-			Reason:             "BackendInitFailed",
-		})
-		r.Client.Status().Update(ctx, propagation)
+		return r.SetReadyConditionFalse(ctx, propagation, err, BackendInitFailedPropagationReadyReason)
+	}
+
+	config, err := propagationConfigClient.GetConfig()
+	if err != nil {
+		return r.SetReadyConditionFalse(ctx, propagation, err, ConfigInitFailedPropagationReadyReason)
+	}
+
+	deployAfter, err := deployAfterFromConfig(*propagation, *config)
+	if err != nil {
+		return r.SetReadyConditionFalse(ctx, propagation, err, ConfigInitFailedPropagationReadyReason)
+	}
+	propagation.Status.DeployAfter = *deployAfter
+	if err := r.Client.Status().Update(ctx, propagation); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	version, err := r.getVersion(ctx, *propagation)
 	if err != nil {
-		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
-			Type:               v1alpha1.ReadyCondition,
-			Message:            err.Error(),
-			Status:             metav1.ConditionFalse,
-			ObservedGeneration: propagation.Generation,
-			Reason:             "VersionMissing",
-		})
-		r.Client.Status().Update(ctx, propagation)
-		return ctrl.Result{}, err
+		return r.SetReadyConditionFalse(ctx, propagation, err, VersionMissingPropagationReadyReason)
 	}
 
 	if readyCondition := meta.FindStatusCondition(
@@ -92,7 +100,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Status:             metav1.ConditionTrue,
 			Message:            "Propagation ready",
 			ObservedGeneration: propagation.Generation,
-			Reason:             "Ready",
+			Reason:             string(ReadyPropagationReadyReason),
 		})
 		if err := r.Client.Status().Update(ctx, propagation); err != nil {
 			return ctrl.Result{}, err
@@ -207,6 +215,38 @@ func (r *PropagationReconciler) getVersion(ctx context.Context, propagation v1al
 		return "", fmt.Errorf("version field is not a string")
 	}
 	return rn.Document().Value, nil
+}
+
+func (r *PropagationReconciler) SetReadyConditionFalse(ctx context.Context, propagation *v1alpha1.Propagation, err error, reason PropagationReadyReason) (ctrl.Result, error) {
+	meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.ReadyCondition,
+		Message:            err.Error(),
+		Status:             metav1.ConditionFalse,
+		ObservedGeneration: propagation.Generation,
+		Reason:             string(reason),
+	})
+	r.Client.Status().Update(ctx, propagation)
+	return ctrl.Result{}, err
+}
+
+func deployAfterFromConfig(propagation v1alpha1.Propagation, c config.Config) (*v1alpha1.DeployAfter, error) {
+	var lastWave config.Wave
+	for _, env := range c.Environments {
+		for waveIdx, wave := range env.Waves {
+			for _, deployment := range wave.Deployments {
+				if env.Name == propagation.Spec.Deployment.Environment &&
+					waveIdx+1 == propagation.Spec.Deployment.Wave &&
+					deployment == propagation.Spec.Deployment.Name {
+					return &v1alpha1.DeployAfter{
+						Deployments: lastWave.Deployments,
+						BakeTime:    lastWave.BakeTime,
+					}, nil
+				}
+			}
+			lastWave = wave
+		}
+	}
+	return nil, fmt.Errorf("failed to find the config for '%s' deployment", propagation.Spec.Deployment.Name)
 }
 
 // SetupWithManager sets up the controller with the Manager.

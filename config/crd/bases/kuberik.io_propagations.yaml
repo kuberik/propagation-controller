@@ -53,20 +53,14 @@ spec:
                 type: object
               deployment:
                 properties:
-                  groupWith:
-                    description: "[!CAUTION] Not implemented! \n Propagation will
-                      not proceed if, as a result of propagation, there will be more
-                      than two active versions deployed across the deployments within
-                      the same environment. This can be used if there are multiple
-                      sites which are deployed separately but represent the same environment.
-                      In that case the rollout of a single version can be preformed
-                      across all sites before starting a rollout for a newer version."
-                    type: string
-                  healthHistoryDurationLimit:
-                    description: Specify for how long the history of healths will
-                      be kept. This needs to be at least larger than `spec.deployAfter.interval`
-                      of deployments which are deployed after this one.
-                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                  environment:
+                    description: Propagation will not proceed if, as a result of propagation,
+                      there will be more than two active versions deployed across
+                      the deployments within the same environment. This can be used
+                      if there are multiple sites which are deployed after each other
+                      (see Waves) but represent the same environment. In that case
+                      the rollout of a single version can be preformed across all
+                      sites before starting a rollout for a newer version.
                     type: string
                   healthSelector:
                     description: "[!CAUTION] Not implemented! \n Selector for Health
@@ -167,9 +161,7 @@ spec:
                         x-kubernetes-map-type: atomic
                     type: object
                   name:
-                    description: Name of the deployment. This value can be used in
-                      other Propagations to determine the order in which the deployments
-                      are propagated.
+                    description: Name of the deployment.
                     type: string
                   version:
                     description: Reads the exact version that was deployed so that
@@ -275,13 +267,7 @@ spec:
                 type: array
               deployAfter:
                 properties:
-                  deployments:
-                    description: Propagation will proceed only after all listed deployments
-                      report a healthy version for the specified amount of time.
-                    items:
-                      type: string
-                    type: array
-                  interval:
+                  bakeTime:
                     description: 'TODO: rename to bake time Propagtion will only be
                       performed after all the deployments specified as dependencies
                       report continous healthy states for the specifed duration. In
@@ -289,6 +275,12 @@ spec:
                       newest one will be used.'
                     pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                     type: string
+                  deployments:
+                    description: Propagation will proceed only after all listed deployments
+                      report a healthy version for the specified amount of time.
+                    items:
+                      type: string
+                    type: array
                 type: object
               deploymentStatus:
                 properties:

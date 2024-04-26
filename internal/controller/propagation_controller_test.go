@@ -19,15 +19,19 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	typescrane "github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/pkg/clients"
+	"github.com/kuberik/propagation-controller/pkg/repo/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -77,6 +81,39 @@ var _ = Describe("Propagation controller", func() {
 			stagingRev2ImageDigest, err := stagingRev2Image.Digest()
 			Expect(err).Should(Not(HaveOccurred()))
 
+			config := config.Config{
+				Environments: []config.Environment{{
+					Name: "dev",
+					Waves: []config.Wave{{
+						BakeTime:    metav1.Duration{Duration: 1 * time.Hour},
+						Deployments: []string{"frankfurt-dev-1"},
+					}},
+					// TODO: not implemented
+					ReleaseCadence: config.ReleaseCadence{
+						WaitTime: metav1.Duration{Duration: 2 * time.Hour},
+					},
+				}, {
+					Name: "staging",
+					Waves: []config.Wave{{
+						BakeTime:    metav1.Duration{Duration: 4 * time.Hour},
+						Deployments: []string{"frankfurt-staging-1"},
+					}},
+					// TODO: not implemented
+					ReleaseCadence: config.ReleaseCadence{
+						// At 08:00 on Monday.
+						Schedule: "0 8 * * 1",
+					},
+				}},
+			}
+
+			repository, err := name.NewRepository(fmt.Sprintf("%s/k8s/%s", strings.TrimPrefix(registryServer.URL, "http://"), PropagationName))
+			Expect(err).NotTo(HaveOccurred())
+
+			ociClient := clients.NewOCIPropagationBackendClient(repository)
+			propagationConfigClient := clients.NewPropagationConfigClient(&ociClient)
+			Expect(propagationConfigClient.PublishConfig(config)).To(Succeed())
+
+			// TODO: replace with a real client that will be used in CI
 			Expect(
 				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:rev-2", registryEndpoint)),
 			).To(Succeed())
@@ -119,7 +156,9 @@ var _ = Describe("Propagation controller", func() {
 						BaseUrl: fmt.Sprintf("oci://%s/k8s/my-app", registryEndpoint),
 					},
 					Deployment: v1alpha1.Deployment{
-						Name: "frankfurt-dev-1",
+						Name:        "frankfurt-dev-1",
+						Environment: "dev",
+						Wave:        1,
 						Version: v1alpha1.LocalObjectField{
 							APIVersion: "v1",
 							Kind:       "ConfigMap",
@@ -211,7 +250,9 @@ var _ = Describe("Propagation controller", func() {
 						BaseUrl: fmt.Sprintf("oci://%s/k8s/my-app", registryEndpoint),
 					},
 					Deployment: v1alpha1.Deployment{
-						Name: "frankfurt-staging-1",
+						Name:        "frankfurt-staging-1",
+						Environment: "staging",
+						Wave:        1,
 						Version: v1alpha1.LocalObjectField{
 							APIVersion: "v1",
 							Kind:       "ConfigMap",
@@ -222,22 +263,6 @@ var _ = Describe("Propagation controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, propagationStaging)).Should(Succeed())
-
-			// TODO: Replace when fetching status is implemented
-			Eventually(func() error {
-				k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: propagationStaging.Namespace,
-					Name:      propagationStaging.Name,
-				}, propagationStaging)
-				propagationStaging.Status.DeployAfter = v1alpha1.DeployAfter{
-					Deployments: []string{
-						"frankfurt-dev-1",
-					},
-					Interval: metav1.Duration{Duration: 4 * time.Hour},
-				}
-				return k8sClient.Status().Update(ctx, propagationStaging)
-			}, timeout, interval).Should(Succeed())
-			k8sClient.Status().Update(ctx, propagationStaging)
 
 			By("By creating a new ConfigMap with deployed version of staging Propagation")
 			deployedStagingVersionConfigMap := &corev1.ConfigMap{
@@ -288,7 +313,7 @@ var _ = Describe("Propagation controller", func() {
 			}, timeout, interval).Should(Equal(stagingRev1ImageDigest))
 
 			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(
-				time.Now().Add(-3*time.Hour - 59*time.Minute),
+				time.Now().Add(-59 * time.Minute),
 			)
 			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
 
@@ -301,7 +326,7 @@ var _ = Describe("Propagation controller", func() {
 			}, timeout, interval).Should(Equal(stagingRev1ImageDigest))
 
 			By("Propagating version")
-			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(time.Now().Add(-4 * time.Hour))
+			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(time.Now().Add(-time.Hour))
 			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
 
 			Eventually(func() (v1.Hash, error) {
@@ -312,7 +337,7 @@ var _ = Describe("Propagation controller", func() {
 				return currentDeployImage.Digest()
 			}, timeout, interval).Should(Equal(stagingRev2ImageDigest))
 
-			// TODO: test version change
+			// TODO: test dev gets propagated from latest
 		})
 	})
 
