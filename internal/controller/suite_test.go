@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
-	"github.com/kuberik/propagation-controller/internal/controller/clients"
+	"github.com/kuberik/propagation-controller/pkg/clients"
 	//+kubebuilder:scaffold:imports
 )
 

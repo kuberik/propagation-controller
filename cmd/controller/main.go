@@ -34,7 +34,7 @@ import (
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/internal/controller"
-	"github.com/kuberik/propagation-controller/internal/controller/clients"
+	"github.com/kuberik/propagation-controller/pkg/clients"
 	//+kubebuilder:scaffold:imports
 )
 
