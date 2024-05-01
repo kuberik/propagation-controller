@@ -218,7 +218,7 @@ func NewPropagationClientset(k8sClient client.Client) PropagationClientset {
 	return clientset
 }
 
-func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, *PropagationConfigClient, error) {
+func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, error) {
 	secret := &corev1.Secret{}
 	if propagation.Spec.Backend.SecretRef != nil && propagation.Spec.Backend.SecretRef.Name != "" {
 		err := pc.k8sClient.Get(context.TODO(), k8stypes.NamespacedName{
@@ -226,92 +226,128 @@ func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*
 			Namespace: propagation.Namespace,
 		}, secret)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
 	key := k8stypes.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
 	newBackendClient, err := newPropagationBackendClient(propagation.Spec.Backend, secret.Data)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	configClient := NewPropagationConfigClient(newBackendClient)
-	if c, ok := pc.clients[key]; ok && reflect.DeepEqual(c.client, newBackendClient) {
-		return c, &configClient, nil
+
+	var client *PropagationClient
+	if c, ok := pc.clients[key]; ok {
+		client = c
+		client.client.PropagationBackendClient = newBackendClient
+	} else {
+		c := NewPropagationClient(newBackendClient)
+		client = &c
 	}
-	client := NewPropagationClient(newBackendClient)
-	pc.clients[key] = &client
-	return &client, &configClient, nil
+	pc.clients[key] = client
+	return client, nil
+}
+
+var _ PropagationBackendClient = &CachedPropagationBackendClient{}
+
+type CachedPropagationBackendClient struct {
+	PropagationBackendClient
+	fetchCache   map[ArtifactMetadata]Artifact
+	publishCache map[ArtifactMetadata]Artifact
+}
+
+func NewCachedPropagationBackendClient(client PropagationBackendClient) CachedPropagationBackendClient {
+	return CachedPropagationBackendClient{
+		PropagationBackendClient: client,
+		fetchCache:               make(map[ArtifactMetadata]Artifact),
+		publishCache:             make(map[ArtifactMetadata]Artifact),
+	}
+}
+
+// Fetch implements PropagationBackendClient.
+func (c *CachedPropagationBackendClient) Fetch(metadata ArtifactMetadata) (Artifact, error) {
+	if cached, ok := c.fetchCache[metadata]; ok {
+		// Manifest artifact should be immutable
+		if metadata.Type == ManifestArtifactType {
+			return cached, nil
+		}
+		cachedDigest, digestErr := cached.DigestString()
+		remoteDigest, err := c.Digest(metadata)
+		if err == nil && digestErr == nil && remoteDigest == cachedDigest {
+			return cached, nil
+		}
+	}
+	a, err := c.PropagationBackendClient.Fetch(metadata)
+	if err != nil {
+		return nil, err
+	}
+	c.fetchCache[metadata] = a
+	return a, nil
+}
+
+// Publish implements PropagationBackendClient.
+func (c *CachedPropagationBackendClient) Publish(metadata ArtifactMetadata, a Artifact) error {
+	if cached, ok := c.publishCache[metadata]; ok {
+		cachedBytes, err := cached.Bytes()
+		if err != nil {
+			return err
+		}
+		publishBytes, err := a.Bytes()
+		if err != nil {
+			return err
+		}
+		if reflect.DeepEqual(cachedBytes, publishBytes) {
+			return nil
+		}
+	}
+	err := c.PropagationBackendClient.Publish(metadata, a)
+	if err != nil {
+		return err
+	}
+	c.publishCache[metadata] = a
+	return nil
 }
 
 type PropagationClient struct {
-	client PropagationBackendClient
-	cache  propagationClientCache
-}
-
-type propagationClientCache struct {
-	deploymentStatuses map[string]Artifact
-	publishedStatus    v1alpha1.DeploymentStatus
-	propagatedVersion  string
+	client CachedPropagationBackendClient
 }
 
 func NewPropagationClient(client PropagationBackendClient) PropagationClient {
 	return PropagationClient{
-		client: client,
-		cache: propagationClientCache{
-			deploymentStatuses: make(map[string]Artifact),
-		},
+		client: NewCachedPropagationBackendClient(client),
 	}
 }
 
-func (c *PropagationClient) PublishStatus(deployment string, status v1alpha1.DeploymentStatus) error {
-	if status == c.cache.publishedStatus {
-		return nil
-	}
-	artifact, err := c.client.NewArtifact(status)
+func (c *PropagationClient) publishArtifact(metadata ArtifactMetadata, data interface{}) error {
+	artifact, err := c.client.NewArtifact(data)
 	if err != nil {
 		return err
 	}
+	return c.client.Publish(metadata, artifact)
+}
 
-	if err := c.client.Publish(ArtifactMetadata{Deployment: deployment, Type: DeployStatusArtifactType}, artifact); err != nil {
+func (c *PropagationClient) PublishStatus(deployment string, status v1alpha1.DeploymentStatus) error {
+	return c.publishArtifact(ArtifactMetadata{Deployment: deployment, Type: DeployStatusArtifactType}, status)
+}
+
+func (c *PropagationClient) fetchArtifact(metadata ArtifactMetadata, dest interface{}) error {
+	artifact, err := c.client.Fetch(metadata)
+	if err != nil {
 		return err
 	}
-	c.cache.publishedStatus = status
-	return nil
+	return c.client.ParseArtifact(artifact, dest)
 }
 
 func (c *PropagationClient) GetStatus(deployment string) (*v1alpha1.DeploymentStatus, error) {
-	artifactMetadata := ArtifactMetadata{Type: DeployStatusArtifactType, Deployment: deployment}
-	var artifact Artifact
-	if cachedStatus, ok := c.cache.deploymentStatuses[deployment]; ok {
-		cachedDigest, digestErr := cachedStatus.DigestString()
-		remoteDigest, err := c.client.Digest(artifactMetadata)
-		if err == nil && digestErr == nil && remoteDigest == cachedDigest {
-			artifact = cachedStatus
-		}
-	}
-
-	var err error
-	if artifact == nil {
-		artifact, err = c.client.Fetch(artifactMetadata)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	status := &v1alpha1.DeploymentStatus{}
-	if err := c.client.ParseArtifact(artifact, status); err != nil {
-		return nil, fmt.Errorf("failed to parse deployment status: %w", err)
+	err := c.fetchArtifact(ArtifactMetadata{Type: DeployStatusArtifactType, Deployment: deployment}, status)
+	if err != nil {
+		return nil, err
 	}
-
-	c.cache.deploymentStatuses[deployment] = artifact
 	return status, nil
 }
 
 func (c *PropagationClient) Propagate(deployment, version string) error {
-	if version == c.cache.propagatedVersion {
-		return nil
-	}
 	artifact, err := c.client.Fetch(
 		ArtifactMetadata{Type: ManifestArtifactType, Deployment: deployment, Version: version},
 	)
@@ -325,43 +361,21 @@ func (c *PropagationClient) Propagate(deployment, version string) error {
 	); err != nil {
 		return err
 	}
-	c.cache.propagatedVersion = version
 	return nil
 }
 
-type PropagationConfigClient struct {
-	client PropagationBackendClient
-}
-
-func NewPropagationConfigClient(client PropagationBackendClient) PropagationConfigClient {
-	return PropagationConfigClient{
-		client: client,
-	}
-}
-
-func (c *PropagationConfigClient) PublishConfig(config config.Config) error {
-	artifact, err := c.client.NewArtifact(config)
-	if err != nil {
-		return err
-	}
-	if err := c.client.Publish(
+func (c *PropagationClient) PublishConfig(config config.Config) error {
+	return c.publishArtifact(
 		ArtifactMetadata{Type: PropagationConfigArtifactType},
-		artifact,
-	); err != nil {
-		return err
-	}
-	return nil
+		config,
+	)
 }
 
-func (c *PropagationConfigClient) GetConfig() (*config.Config, error) {
-	artifact, err := c.client.Fetch(ArtifactMetadata{Type: PropagationConfigArtifactType})
+func (c *PropagationClient) GetConfig() (*config.Config, error) {
+	config := &config.Config{}
+	err := c.fetchArtifact(ArtifactMetadata{Type: PropagationConfigArtifactType}, config)
 	if err != nil {
 		return nil, err
-	}
-
-	config := &config.Config{}
-	if err := c.client.ParseArtifact(artifact, config); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	return config, nil
 }

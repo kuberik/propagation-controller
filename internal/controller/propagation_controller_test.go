@@ -110,7 +110,7 @@ var _ = Describe("Propagation controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			ociClient := clients.NewOCIPropagationBackendClient(repository)
-			propagationConfigClient := clients.NewPropagationConfigClient(&ociClient)
+			propagationConfigClient := clients.NewPropagationClient(&ociClient)
 			Expect(propagationConfigClient.PublishConfig(config)).To(Succeed())
 
 			// TODO: replace with a real client that will be used in CI
