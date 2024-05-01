@@ -162,13 +162,17 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	waitTime := propagation.Spec.PollInterval.Duration
+	if waitTime == 0 {
+		waitTime = time.Minute
+	}
 	propagateVersion := propagation.NextVersion()
 	if propagateVersion == "" {
 		// TODO: Calculate from status how long to wait
 		log.Info("No candidate version to propagate")
 		return ctrl.Result{
 			Requeue:      true,
-			RequeueAfter: 60 * time.Second,
+			RequeueAfter: waitTime,
 		}, nil
 	}
 	log.Info(fmt.Sprintf("Propagating to version %s", propagateVersion))
@@ -176,7 +180,10 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{
+		Requeue:      true,
+		RequeueAfter: waitTime,
+	}, nil
 }
 
 func (r *PropagationReconciler) getVersion(ctx context.Context, propagation v1alpha1.Propagation) (string, error) {

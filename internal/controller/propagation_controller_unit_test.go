@@ -343,16 +343,6 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 			Wave:        2,
 		},
 		wantErr: true,
-		// TODO: test first environment. propagates from where?
-	}, {
-		name:   "full config missing wave",
-		config: configFull,
-		input: v1alpha1.Deployment{
-			Name:        "frankfurt-production-1",
-			Environment: "production",
-			Wave:        2,
-		},
-		wantErr: true,
 	}, {
 		name:   "full config missing env",
 		config: configFull,
@@ -362,9 +352,15 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 			Wave:        1,
 		},
 		wantErr: true,
-		// TODO: test first environment. propagates from where?
-		// TODO: test missing wave
-		// TODO: test missing environment
+	}, {
+		name:   "full config dev",
+		config: configFull,
+		input: v1alpha1.Deployment{
+			Name:        "frankfurt-dev-1",
+			Environment: "dev",
+			Wave:        1,
+		},
+		want: v1alpha1.DeployAfter{},
 	}}
 
 	for _, tc := range testCases {

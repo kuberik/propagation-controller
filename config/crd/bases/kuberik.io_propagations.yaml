@@ -193,6 +193,8 @@ spec:
                     description: 'TODO:'
                     type: integer
                 type: object
+              pollInterval:
+                type: string
             type: object
           status:
             description: PropagationStatus defines the observed state of Propagation
