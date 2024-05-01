@@ -439,6 +439,9 @@ func TestNextVersion(t *testing.T) {
 				}}},
 		},
 		want: "rev-1",
+	}, {
+		name: "first wave",
+		want: "latest",
 	}}
 
 	for _, tc := range testCases {

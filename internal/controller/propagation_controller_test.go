@@ -57,7 +57,7 @@ var _ = Describe("Propagation controller", func() {
 		PropagationDevNamespace     = "dev"
 		PropagationStagingNamespace = "staging"
 
-		timeout  = time.Second * 10
+		timeout  = time.Second * 5
 		duration = time.Second * 10
 		interval = time.Millisecond * 250
 	)
@@ -67,19 +67,19 @@ var _ = Describe("Propagation controller", func() {
 			ctx := context.Background()
 
 			By("Pushing manifests")
-			fakeDeploymentImage := func(deployment, version string) (v1.Image, error) {
-				return mutate.AppendLayers(empty.Image, static.NewLayer([]byte(fmt.Sprintf("%s/%s", deployment, version)), typescrane.MediaType("fake")))
+			fakeDeploymentImage := func(deployment, version string) (v1.Image, v1.Hash) {
+				image, err := mutate.AppendLayers(empty.Image, static.NewLayer([]byte(fmt.Sprintf("%s/%s", deployment, version)), typescrane.MediaType("fake")))
+				Expect(err).ShouldNot(HaveOccurred())
+				digest, err := image.Digest()
+				Expect(err).ShouldNot(HaveOccurred())
+				fmt.Printf("Fake deploy image for deployment %s, version %s has digest %s\n", deployment, version, digest)
+				return image, digest
 			}
-			devRev2Image, err := fakeDeploymentImage("frankfurt-dev-1", "rev-2")
-			Expect(err).ShouldNot(HaveOccurred())
-			stagingRev1Image, err := fakeDeploymentImage("frankfurt-staging-1", "rev-1")
-			Expect(err).ShouldNot(HaveOccurred())
-			stagingRev1ImageDigest, err := stagingRev1Image.Digest()
-			Expect(err).Should(Not(HaveOccurred()))
-			stagingRev2Image, err := fakeDeploymentImage("frankfurt-staging-1", "rev-2")
-			Expect(err).ShouldNot(HaveOccurred())
-			stagingRev2ImageDigest, err := stagingRev2Image.Digest()
-			Expect(err).Should(Not(HaveOccurred()))
+			devRev2Image, devRev2ImageDigest := fakeDeploymentImage("frankfurt-dev-1", "rev-2")
+			devRev3Image, devRev3ImageDigest := fakeDeploymentImage("frankfurt-dev-1", "rev-3")
+			stagingRev1Image, stagingRev1ImageDigest := fakeDeploymentImage("frankfurt-staging-1", "rev-1")
+			stagingRev2Image, stagingRev2ImageDigest := fakeDeploymentImage("frankfurt-staging-1", "rev-2")
+			// stagingRev3Image, stagingRev3ImageDigest := fakeDeploymentImage("frankfurt-staging-1", "rev-3")
 
 			config := config.Config{
 				Environments: []config.Environment{{
@@ -116,6 +116,9 @@ var _ = Describe("Propagation controller", func() {
 			// TODO: replace with a real client that will be used in CI
 			Expect(
 				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:rev-2", registryEndpoint)),
+			).To(Succeed())
+			Expect(
+				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:latest", registryEndpoint)),
 			).To(Succeed())
 			Expect(
 				crane.Push(stagingRev1Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-staging-1:rev-1", registryEndpoint)),
@@ -166,6 +169,7 @@ var _ = Describe("Propagation controller", func() {
 							FieldPath:  "data.version",
 						},
 					},
+					PollInterval: metav1.Duration{Duration: time.Second},
 				},
 			}
 			Expect(k8sClient.Create(ctx, propagationDev)).Should(Succeed())
@@ -337,7 +341,26 @@ var _ = Describe("Propagation controller", func() {
 				return currentDeployImage.Digest()
 			}, timeout, interval).Should(Equal(stagingRev2ImageDigest))
 
-			// TODO: test dev gets propagated from latest
+			By("Starting a new propagation version in dev")
+			Consistently(func() (v1.Hash, error) {
+				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-dev-1:latest", registryEndpoint))
+				if err != nil {
+					return v1.Hash{}, err
+				}
+				return currentDeployImage.Digest()
+			}, timeout, interval).Should(Equal(devRev2ImageDigest))
+
+			Expect(
+				crane.Push(devRev3Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:latest", registryEndpoint)),
+			).To(Succeed())
+
+			Eventually(func() (v1.Hash, error) {
+				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-dev-1:latest", registryEndpoint))
+				if err != nil {
+					return v1.Hash{}, err
+				}
+				return currentDeployImage.Digest()
+			}, timeout, interval).Should(Equal(devRev3ImageDigest))
 		})
 	})
 

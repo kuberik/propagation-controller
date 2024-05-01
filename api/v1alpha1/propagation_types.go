@@ -22,14 +22,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // PropagationSpec defines the desired state of Propagation
 type PropagationSpec struct {
-	Backend    PropagationBackend `json:"backend,omitempty"`
-	Deployment Deployment         `json:"deployment,omitempty"`
+	PollInterval metav1.Duration    `json:"pollInterval,omitempty"`
+	Backend      PropagationBackend `json:"backend,omitempty"`
+	Deployment   Deployment         `json:"deployment,omitempty"`
 }
 
 type PropagationBackend struct {
@@ -214,8 +216,9 @@ type Propagation struct {
 }
 
 func (p *Propagation) NextVersion() string {
-	if len(p.Status.DeploymentStatusesReports) == 0 {
-		return ""
+	// Double check because it could be quite dangerous if non-first stage gets propagated to latest
+	if len(p.Status.DeploymentStatusesReports) == 0 && len(p.Status.DeployAfter.Deployments) == 0 {
+		return name.DefaultTag
 	}
 	versions := []string{}
 	statuses := p.Status.DeploymentStatusesReports[0].Statuses
