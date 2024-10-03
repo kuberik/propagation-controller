@@ -103,6 +103,7 @@ func (c *OCIPropagationBackendClient) ociTagFromArtifactMetadata(m ArtifactMetad
 		version = name.DefaultTag
 		subpath = "deploy"
 	case PropagationConfigArtifactType:
+		version = name.DefaultTag
 		subpath = "config"
 	default:
 		panic("unknown artifact type")
@@ -214,7 +215,7 @@ func NewPropagationClientset(k8sClient client.Client) PropagationClientset {
 	return clientset
 }
 
-func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, error) {
+func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, *PropagationConfigClient, error) {
 	secret := &corev1.Secret{}
 	if propagation.Spec.Backend.SecretRef != nil && propagation.Spec.Backend.SecretRef.Name != "" {
 		err := pc.k8sClient.Get(context.TODO(), k8stypes.NamespacedName{
@@ -222,21 +223,22 @@ func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*
 			Namespace: propagation.Namespace,
 		}, secret)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	key := k8stypes.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
 	newBackendClient, err := newPropagationBackendClient(propagation.Spec.Backend, secret.Data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	configClient := NewPropagationConfigClient(newBackendClient)
 	if c, ok := pc.clients[key]; ok && reflect.DeepEqual(c.client, newBackendClient) {
-		return c, nil
+		return c, &configClient, nil
 	}
 	client := NewPropagationClient(newBackendClient)
 	pc.clients[key] = &client
-	return &client, nil
+	return &client, &configClient, nil
 }
 
 type PropagationClient struct {
