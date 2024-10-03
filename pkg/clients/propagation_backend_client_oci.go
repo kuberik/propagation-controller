@@ -265,7 +265,7 @@ func NewCachedPropagationBackendClient(client PropagationBackendClient) CachedPr
 func (c *CachedPropagationBackendClient) Fetch(metadata ArtifactMetadata) (Artifact, error) {
 	if cached, ok := c.fetchCache[metadata]; ok {
 		// Manifest artifact should be immutable
-		if metadata.Type == ManifestArtifactType {
+		if metadata.Type == ManifestArtifactType && metadata.Version != name.DefaultTag {
 			return cached, nil
 		}
 		cachedDigest, digestErr := cached.DigestString()
