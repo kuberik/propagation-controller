@@ -16,6 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/pkg/repo/config"
 	corev1 "k8s.io/api/core/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +33,7 @@ const (
 	DeployStatusArtifactType ArtifactType = iota
 	ManifestArtifactType
 	DeployArtifactType
+	PropagationConfigArtifactType
 )
 
 type ArtifactMetadata struct {
@@ -44,7 +46,8 @@ type PropagationBackendClient interface {
 	Fetch(ArtifactMetadata) (Artifact, error)
 	Digest(ArtifactMetadata) (string, error)
 	Publish(ArtifactMetadata, Artifact) error
-	NewStatusArtifact(status v1alpha1.DeploymentStatus) (Artifact, error)
+	NewArtifact(data any) (Artifact, error)
+	ParseArtifact(a Artifact, dest any) error
 }
 
 var _ Artifact = &ociArtifact{}
@@ -99,6 +102,8 @@ func (c *OCIPropagationBackendClient) ociTagFromArtifactMetadata(m ArtifactMetad
 	case DeployArtifactType:
 		version = name.DefaultTag
 		subpath = "deploy"
+	case PropagationConfigArtifactType:
+		subpath = "config"
 	default:
 		panic("unknown artifact type")
 	}
@@ -127,19 +132,29 @@ func (c *OCIPropagationBackendClient) Publish(m ArtifactMetadata, a Artifact) er
 	return fmt.Errorf("incompatible artifact for OCI client")
 }
 
-// NewStatusArtifact implements PropagationBackendClient.
-func (*OCIPropagationBackendClient) NewStatusArtifact(status v1alpha1.DeploymentStatus) (Artifact, error) {
-	statusesJSON, err := json.Marshal(status)
+// NewArtifact implements PropagationBackendClient.
+func (*OCIPropagationBackendClient) NewArtifact(data any) (Artifact, error) {
+	artifactJSON, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
 	}
 
-	layer := static.NewLayer(statusesJSON, types.MediaType("application/json"))
+	layer := static.NewLayer(artifactJSON, types.MediaType("application/json"))
 	image, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
 		return nil, err
 	}
 	return &ociArtifact{image: image}, nil
+}
+
+// ParseArtifact implements PropagationBackendClient.
+func (c *OCIPropagationBackendClient) ParseArtifact(a Artifact, dest any) error {
+	artifactData, err := a.Bytes()
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(artifactData, dest)
 }
 
 func (c *OCIPropagationBackendClient) options() []crane.Option {
@@ -248,7 +263,7 @@ func (c *PropagationClient) PublishStatus(deployment string, status v1alpha1.Dep
 	if status == c.cache.publishedStatus {
 		return nil
 	}
-	artifact, err := c.client.NewStatusArtifact(status)
+	artifact, err := c.client.NewArtifact(status)
 	if err != nil {
 		return err
 	}
@@ -279,14 +294,9 @@ func (c *PropagationClient) GetStatus(deployment string) (*v1alpha1.DeploymentSt
 		}
 	}
 
-	artifactData, err := artifact.Bytes()
-	if err != nil {
-		return nil, err
-	}
-
 	status := &v1alpha1.DeploymentStatus{}
-	if err := json.Unmarshal(artifactData, status); err != nil {
-		return nil, err
+	if err := c.client.ParseArtifact(artifact, status); err != nil {
+		return nil, fmt.Errorf("failed to parse deployment status: %w", err)
 	}
 
 	c.cache.deploymentStatuses[deployment] = artifact
@@ -312,4 +322,38 @@ func (c *PropagationClient) Propagate(deployment, version string) error {
 	}
 	c.cache.propagatedVersion = version
 	return nil
+}
+
+type PropagationConfigClient struct {
+	client PropagationBackendClient
+}
+
+func NewPropagationConfigClient(client PropagationBackendClient) PropagationConfigClient {
+	return PropagationConfigClient{
+		client: client,
+	}
+}
+
+func (c *PropagationConfigClient) PublishConfig(config config.Config) error {
+	artifact, err := c.client.NewArtifact(config)
+	if err != nil {
+		return err
+	}
+	return c.client.Publish(
+		ArtifactMetadata{Type: PropagationConfigArtifactType},
+		artifact,
+	)
+}
+
+func (c *PropagationConfigClient) GetConfig() (*config.Config, error) {
+	artifact, err := c.client.Fetch(ArtifactMetadata{Type: PropagationConfigArtifactType})
+	if err != nil {
+		return nil, err
+	}
+
+	config := &config.Config{}
+	if err := c.client.ParseArtifact(artifact, config); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	return config, nil
 }

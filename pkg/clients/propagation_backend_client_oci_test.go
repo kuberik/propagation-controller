@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
+	"github.com/kuberik/propagation-controller/pkg/repo/config"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -274,4 +275,45 @@ func TestPropagateCached(t *testing.T) {
 	err = client.Propagate("staging", "abf1a799152d2655bbd7b4bf0b70422d7eda233f")
 	assert.NoError(t, err)
 	assert.Equal(t, requestCount, len(requestLog))
+}
+
+func TestPublishConfigOCI(t *testing.T) {
+	input := config.Config{
+		Environments: []config.Environment{{
+			Name: "dev",
+			Waves: []config.Wave{{
+				BakeTime: metav1.Duration{Duration: time.Hour},
+			}},
+			ReleaseCadence: config.ReleaseCadence{
+				WaitTime: metav1.Duration{Duration: 2 * time.Hour},
+			},
+		}, {
+			Name: "prod",
+			Waves: []config.Wave{{
+				BakeTime: metav1.Duration{Duration: time.Hour},
+			}},
+			ReleaseCadence: config.ReleaseCadence{
+				// At 08:00 on Monday.
+				Schedule: "0 8 * * 1",
+			},
+		}},
+	}
+
+	registryServer := localRegistry()
+	defer registryServer.Close()
+	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
+	assert.NoError(t, err)
+
+	ociClient := NewOCIPropagationBackendClient(repository)
+	client := NewPropagationConfigClient(&ociClient)
+
+	_, err = client.GetConfig()
+	assert.ErrorContains(t, err, "NAME_UNKNOWN")
+
+	err = client.PublishConfig(input)
+	assert.NoError(t, err)
+
+	config, err := client.GetConfig()
+	assert.NoError(t, err)
+	assert.Equal(t, input, *config)
 }

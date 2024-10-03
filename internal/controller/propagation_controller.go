@@ -22,7 +22,7 @@ import (
 	"time"
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
-	"github.com/kuberik/propagation-controller/internal/controller/clients"
+	"github.com/kuberik/propagation-controller/pkg/clients"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
