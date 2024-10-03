@@ -135,12 +135,12 @@ func (c *OCIPropagationBackendClient) Publish(m ArtifactMetadata, a Artifact) er
 
 // NewArtifact implements PropagationBackendClient.
 func (*OCIPropagationBackendClient) NewArtifact(data any) (Artifact, error) {
-	statusesJSON, err := json.Marshal(data)
+	artifactJSON, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
 	}
 
-	layer := static.NewLayer(statusesJSON, types.MediaType("application/json"))
+	layer := static.NewLayer(artifactJSON, types.MediaType("application/json"))
 	image, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
 		return nil, err
@@ -155,10 +155,7 @@ func (c *OCIPropagationBackendClient) ParseArtifact(a Artifact, dest any) error 
 		return err
 	}
 
-	if err := json.Unmarshal(artifactData, dest); err != nil {
-		return err
-	}
-	return nil
+	return json.Unmarshal(artifactData, dest)
 }
 
 func (c *OCIPropagationBackendClient) options() []crane.Option {
@@ -218,7 +215,7 @@ func NewPropagationClientset(k8sClient client.Client) PropagationClientset {
 	return clientset
 }
 
-func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, error) {
+func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*PropagationClient, *PropagationConfigClient, error) {
 	secret := &corev1.Secret{}
 	if propagation.Spec.Backend.SecretRef != nil && propagation.Spec.Backend.SecretRef.Name != "" {
 		err := pc.k8sClient.Get(context.TODO(), k8stypes.NamespacedName{
@@ -226,14 +223,14 @@ func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*
 			Namespace: propagation.Namespace,
 		}, secret)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	key := k8stypes.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
 	newBackendClient, err := newPropagationBackendClient(propagation.Spec.Backend, secret.Data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var client *PropagationClient

@@ -68,7 +68,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	propagationClient, err := r.Propagation(*propagation)
+	propagationClient, propagationConfigClient, err := r.Propagation(*propagation)
 	if err != nil {
 		return r.SetReadyConditionFalse(ctx, propagation, err, BackendInitFailedPropagationReadyReason)
 	}
@@ -229,6 +229,8 @@ func (r *PropagationReconciler) SetReadyConditionFalse(ctx context.Context, prop
 	return ctrl.Result{}, err
 }
 
+// deployAfterFromConfig determines based on the global deployment config which deployments precede the current one in the propagation sequence.
+// It identifies the the wave and environment of the current deployment and returns the deployments from the previous wave.
 func deployAfterFromConfig(propagation v1alpha1.Propagation, c config.Config) (*v1alpha1.DeployAfter, error) {
 	var lastWave config.Wave
 	for _, env := range c.Environments {
