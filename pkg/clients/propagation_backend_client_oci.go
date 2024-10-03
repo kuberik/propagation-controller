@@ -134,12 +134,12 @@ func (c *OCIPropagationBackendClient) Publish(m ArtifactMetadata, a Artifact) er
 
 // NewArtifact implements PropagationBackendClient.
 func (*OCIPropagationBackendClient) NewArtifact(data any) (Artifact, error) {
-	statusesJSON, err := json.Marshal(data)
+	artifactJSON, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
 	}
 
-	layer := static.NewLayer(statusesJSON, types.MediaType("application/json"))
+	layer := static.NewLayer(artifactJSON, types.MediaType("application/json"))
 	image, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
 		return nil, err
@@ -154,10 +154,7 @@ func (c *OCIPropagationBackendClient) ParseArtifact(a Artifact, dest any) error 
 		return err
 	}
 
-	if err := json.Unmarshal(artifactData, dest); err != nil {
-		return err
-	}
-	return nil
+	return json.Unmarshal(artifactData, dest)
 }
 
 func (c *OCIPropagationBackendClient) options() []crane.Option {
@@ -342,13 +339,10 @@ func (c *PropagationConfigClient) PublishConfig(config config.Config) error {
 	if err != nil {
 		return err
 	}
-	if err := c.client.Publish(
+	return c.client.Publish(
 		ArtifactMetadata{Type: PropagationConfigArtifactType},
 		artifact,
-	); err != nil {
-		return err
-	}
-	return nil
+	)
 }
 
 func (c *PropagationConfigClient) GetConfig() (*config.Config, error) {
