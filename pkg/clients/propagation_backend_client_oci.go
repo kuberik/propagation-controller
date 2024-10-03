@@ -103,10 +103,7 @@ func (c *OCIPropagationBackendClient) ociTagFromArtifactMetadata(m ArtifactMetad
 		version = name.DefaultTag
 		subpath = "deploy"
 	case PropagationConfigArtifactType:
-<<<<<<< HEAD
 		version = name.DefaultTag
-=======
->>>>>>> main
 		subpath = "config"
 	default:
 		panic("unknown artifact type")
