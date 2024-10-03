@@ -80,7 +80,7 @@ func TestPublishStatusOCICached(t *testing.T) {
 			},
 		},
 	}
-	client, _, err := propagationClientset.Propagation(propagation)
+	client, err := propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	err = client.PublishStatus("staging-frankfurt-1", input)
@@ -89,7 +89,7 @@ func TestPublishStatusOCICached(t *testing.T) {
 	requestCount := len(requestLog)
 
 	// reinitialie client to check if caching is in effect
-	client, _, err = propagationClientset.Propagation(propagation)
+	client, err = propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	// cached call
@@ -150,7 +150,7 @@ func TestGetStatusOCICached(t *testing.T) {
 			},
 		},
 	}
-	clientGetter, _, err := propagationClientset.Propagation(propagation)
+	clientGetter, err := propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	status, err := clientGetter.GetStatus("prod")
@@ -160,7 +160,7 @@ func TestGetStatusOCICached(t *testing.T) {
 	requestCount := len(requestLog)
 
 	// reinitialie client to check if caching is in effect
-	clientGetter, _, err = propagationClientset.Propagation(propagation)
+	clientGetter, err = propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	// cached call
@@ -251,7 +251,7 @@ func TestPropagateCached(t *testing.T) {
 			},
 		},
 	}
-	client, _, err := propagationClientset.Propagation(propagation)
+	client, err := propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(
@@ -268,7 +268,7 @@ func TestPropagateCached(t *testing.T) {
 	requestCount := len(requestLog)
 
 	// reinitialie client to check if caching is in effect
-	client, _, err = propagationClientset.Propagation(propagation)
+	client, err = propagationClientset.Propagation(propagation)
 	assert.NoError(t, err)
 
 	// cached call
@@ -305,7 +305,7 @@ func TestPublishConfigOCI(t *testing.T) {
 	assert.NoError(t, err)
 
 	ociClient := NewOCIPropagationBackendClient(repository)
-	client := NewPropagationConfigClient(&ociClient)
+	client := NewPropagationClient(&ociClient)
 
 	_, err = client.GetConfig()
 	assert.ErrorContains(t, err, "NAME_UNKNOWN")
