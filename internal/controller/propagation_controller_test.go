@@ -53,33 +53,38 @@ var _ = Describe("Propagation controller", func() {
 
 	// Define utility constants for object names and testing timeouts/durations and intervals.
 	const (
-		PropagationName             = "my-app"
-		PropagationDevNamespace     = "dev"
-		PropagationStagingNamespace = "staging"
-
 		timeout  = time.Second * 5
 		duration = time.Second * 10
 		interval = time.Millisecond * 250
 	)
 
-	Context("When updating Propagation Status", func() {
+	assertPropagatedDeployment := func(assertion func(actualOrCtx interface{}, args ...interface{}) AsyncAssertion, propagationName, deployment string, want testImage) {
+		assertion(func() bool {
+			currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/%s/deploy/%s:latest", registryEndpoint, propagationName, deployment))
+			if err != nil {
+				return false
+			}
+			digest, err := currentDeployImage.Digest()
+			if err != nil {
+				return false
+			}
+			return digest.String() == want.digest.String()
+		}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Deployment %s should have image with digest %s", deployment, want.version))
+	}
+
+	Context("Propagating dev -> staging", func() {
+		const (
+			PropagationName             = "my-app"
+			PropagationDevNamespace     = "dev"
+			PropagationStagingNamespace = "staging"
+		)
 		It("Should propagate version to/from another deployment", func() {
 			ctx := context.Background()
 
 			By("Pushing manifests")
-			fakeDeploymentImage := func(deployment, version string) (v1.Image, v1.Hash) {
-				image, err := mutate.AppendLayers(empty.Image, static.NewLayer([]byte(fmt.Sprintf("%s/%s", deployment, version)), typescrane.MediaType("fake")))
-				Expect(err).ShouldNot(HaveOccurred())
-				digest, err := image.Digest()
-				Expect(err).ShouldNot(HaveOccurred())
-				fmt.Printf("Fake deploy image for deployment %s, version %s has digest %s\n", deployment, version, digest)
-				return image, digest
-			}
-			devRev2Image, devRev2ImageDigest := fakeDeploymentImage("frankfurt-dev-1", "rev-2")
-			devRev3Image, devRev3ImageDigest := fakeDeploymentImage("frankfurt-dev-1", "rev-3")
-			stagingRev1Image, stagingRev1ImageDigest := fakeDeploymentImage("frankfurt-staging-1", "rev-1")
-			stagingRev2Image, stagingRev2ImageDigest := fakeDeploymentImage("frankfurt-staging-1", "rev-2")
-			// stagingRev3Image, stagingRev3ImageDigest := fakeDeploymentImage("frankfurt-staging-1", "rev-3")
+			devRev2Image := fakeDeploymentImage(PropagationName, "frankfurt-dev-1", "rev-2")
+			stagingRev1Image := fakeDeploymentImage(PropagationName, "frankfurt-staging-1", "rev-1")
+			stagingRev2Image := fakeDeploymentImage(PropagationName, "frankfurt-staging-1", "rev-2")
 
 			config := config.Config{
 				Environments: []config.Environment{{
@@ -113,66 +118,13 @@ var _ = Describe("Propagation controller", func() {
 			propagationConfigClient := clients.NewPropagationClient(&ociClient)
 			Expect(propagationConfigClient.PublishConfig(config)).To(Succeed())
 
-			// TODO: replace with a real client that will be used in CI
-			Expect(
-				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:rev-2", registryEndpoint)),
-			).To(Succeed())
-			Expect(
-				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:latest", registryEndpoint)),
-			).To(Succeed())
-			Expect(
-				crane.Push(stagingRev1Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-staging-1:rev-1", registryEndpoint)),
-			).To(Succeed())
-			Expect(
-				crane.Push(stagingRev2Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-staging-1:rev-2", registryEndpoint)),
-			).To(Succeed())
-
-			Expect(
-				crane.Push(devRev2Image, fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-dev-1:latest", registryEndpoint)),
-			).To(Succeed())
-			Expect(
-				crane.Push(stagingRev1Image, fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint)),
-			).To(Succeed())
+			// Set initial deployment versions
+			pushImage(devRev2Image.image, PropagationName, "deploy", "frankfurt-dev-1", "latest")
+			pushImage(stagingRev1Image.image, PropagationName, "deploy", "frankfurt-staging-1", "latest")
 
 			By("By creating a new Propagation")
 
-			Expect(k8sClient.Create(ctx, &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: PropagationDevNamespace,
-				},
-			})).Should(Succeed())
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Name: PropagationDevNamespace}, &corev1.Namespace{})
-			}).Should(Succeed())
-
-			propagationDev := &v1alpha1.Propagation{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "kuberik.io/v1alpha1",
-					Kind:       "Propagation",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      PropagationName,
-					Namespace: PropagationDevNamespace,
-				},
-				Spec: v1alpha1.PropagationSpec{
-					Backend: v1alpha1.PropagationBackend{
-						BaseUrl: fmt.Sprintf("oci://%s/k8s/my-app", registryEndpoint),
-					},
-					Deployment: v1alpha1.Deployment{
-						Name:        "frankfurt-dev-1",
-						Environment: "dev",
-						Wave:        1,
-						Version: v1alpha1.LocalObjectField{
-							APIVersion: "v1",
-							Kind:       "ConfigMap",
-							Name:       PropagationName,
-							FieldPath:  "data.version",
-						},
-					},
-					PollInterval: metav1.Duration{Duration: time.Second},
-				},
-			}
-			Expect(k8sClient.Create(ctx, propagationDev)).Should(Succeed())
+			createPropagation(ctx, PropagationName, PropagationDevNamespace, "frankfurt-dev-1", "dev")
 
 			propagationDevLookupKey := types.NamespacedName{Name: PropagationName, Namespace: PropagationDevNamespace}
 			createdPropagationDev := &v1alpha1.Propagation{}
@@ -191,20 +143,7 @@ var _ = Describe("Propagation controller", func() {
 			}, timeout, interval).Should(BeTrue())
 
 			By("By creating a new ConfigMap with deployed version to dev")
-			deployedVersionDevConfigMap := &corev1.ConfigMap{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "ConfigMap",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      PropagationName,
-					Namespace: PropagationDevNamespace,
-				},
-				Data: map[string]string{
-					"version": "rev-2",
-				},
-			}
-			Expect(k8sClient.Create(ctx, deployedVersionDevConfigMap)).Should(Succeed())
+			createDeployedVersionConfigMap(PropagationName, PropagationDevNamespace, "rev-2")
 
 			By("Reading deployed version from referenced ConfigMap marks Propagation as ready")
 			Eventually(func() bool {
@@ -231,58 +170,11 @@ var _ = Describe("Propagation controller", func() {
 
 			By("By creating a staging Propagation depending on the first one")
 
-			Expect(k8sClient.Create(ctx, &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: PropagationStagingNamespace,
-				},
-			})).Should(Succeed())
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Name: PropagationStagingNamespace}, &corev1.Namespace{})
-			}).Should(Succeed())
-
-			propagationStaging := &v1alpha1.Propagation{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "kuberik.io/v1alpha1",
-					Kind:       "Propagation",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      PropagationName,
-					Namespace: PropagationStagingNamespace,
-				},
-				Spec: v1alpha1.PropagationSpec{
-					Backend: v1alpha1.PropagationBackend{
-						BaseUrl: fmt.Sprintf("oci://%s/k8s/my-app", registryEndpoint),
-					},
-					Deployment: v1alpha1.Deployment{
-						Name:        "frankfurt-staging-1",
-						Environment: "staging",
-						Wave:        1,
-						Version: v1alpha1.LocalObjectField{
-							APIVersion: "v1",
-							Kind:       "ConfigMap",
-							Name:       PropagationName,
-							FieldPath:  "data.version",
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, propagationStaging)).Should(Succeed())
+			createPropagation(ctx, PropagationName, PropagationStagingNamespace, "frankfurt-staging-1", "staging")
 
 			By("By creating a new ConfigMap with deployed version of staging Propagation")
-			deployedStagingVersionConfigMap := &corev1.ConfigMap{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "ConfigMap",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      PropagationName,
-					Namespace: PropagationStagingNamespace,
-				},
-				Data: map[string]string{
-					"version": "rev-1",
-				},
-			}
-			Expect(k8sClient.Create(ctx, deployedStagingVersionConfigMap)).Should(Succeed())
+
+			createDeployedVersionConfigMap(PropagationName, PropagationStagingNamespace, "rev-1")
 
 			By("Updating deployment status reports")
 			propagationStagingLookupKey := types.NamespacedName{Name: PropagationName, Namespace: PropagationStagingNamespace}
@@ -308,60 +200,209 @@ var _ = Describe("Propagation controller", func() {
 
 			By("Waiting for version rev-1 to be healthy for specified duration")
 
-			Consistently(func() (v1.Hash, error) {
-				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint))
-				if err != nil {
-					return v1.Hash{}, err
-				}
-				return currentDeployImage.Digest()
-			}, timeout, interval).Should(Equal(stagingRev1ImageDigest))
+			assertPropagatedDeployment(Consistently, PropagationName, "frankfurt-staging-1", stagingRev1Image)
 
 			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(
 				time.Now().Add(-59 * time.Minute),
 			)
 			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
 
-			Consistently(func() (v1.Hash, error) {
-				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint))
-				if err != nil {
-					return v1.Hash{}, err
-				}
-				return currentDeployImage.Digest()
-			}, timeout, interval).Should(Equal(stagingRev1ImageDigest))
+			assertPropagatedDeployment(Consistently, PropagationName, "frankfurt-staging-1", stagingRev1Image)
 
 			By("Propagating version")
 			createdPropagationStaging.Status.DeploymentStatusesReports[0].Statuses[0].Start = metav1.NewTime(time.Now().Add(-time.Hour))
 			Expect(k8sClient.Status().Update(ctx, createdPropagationStaging)).Should(Succeed())
 
-			Eventually(func() (v1.Hash, error) {
-				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-staging-1:latest", registryEndpoint))
-				if err != nil {
-					return v1.Hash{}, err
-				}
-				return currentDeployImage.Digest()
-			}, timeout, interval).Should(Equal(stagingRev2ImageDigest))
+			assertPropagatedDeployment(Eventually, PropagationName, "frankfurt-staging-1", stagingRev2Image)
 
 			By("Starting a new propagation version in dev")
-			Consistently(func() (v1.Hash, error) {
-				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-dev-1:latest", registryEndpoint))
-				if err != nil {
-					return v1.Hash{}, err
-				}
-				return currentDeployImage.Digest()
-			}, timeout, interval).Should(Equal(devRev2ImageDigest))
+			assertPropagatedDeployment(Consistently, PropagationName, "frankfurt-dev-1", devRev2Image)
 
-			Expect(
-				crane.Push(devRev3Image, fmt.Sprintf("%s/k8s/my-app/manifests/frankfurt-dev-1:latest", registryEndpoint)),
-			).To(Succeed())
+			devRev3Image := fakeDeploymentImage(PropagationName, "frankfurt-dev-1", "rev-3")
 
-			Eventually(func() (v1.Hash, error) {
-				currentDeployImage, err := crane.Pull(fmt.Sprintf("%s/k8s/my-app/deploy/frankfurt-dev-1:latest", registryEndpoint))
-				if err != nil {
-					return v1.Hash{}, err
-				}
-				return currentDeployImage.Digest()
-			}, timeout, interval).Should(Equal(devRev3ImageDigest))
+			assertPropagatedDeployment(Eventually, PropagationName, "frankfurt-dev-1", devRev3Image)
+			assertPropagatedDeployment(Consistently, PropagationName, "frankfurt-staging-1", stagingRev2Image)
+		})
+	})
+
+	Context("When propagating 3 waves across the same environment", func() {
+		const (
+			PropagationName           = "prod-3-waves"
+			PropagationProd1Namespace = "prod-1"
+			PropagationProd2Namespace = "prod-2"
+			PropagationProd3Namespace = "prod-3"
+		)
+		It("Should propagate versions to/from multiple deployments", func() {
+			ctx := context.Background()
+
+			By("Pushing manifests")
+			prod1Rev2Image := fakeDeploymentImage(PropagationName, "prod-1", "rev-2")
+			_ = prod1Rev2Image
+			prod2Rev1Image := fakeDeploymentImage(PropagationName, "prod-2", "rev-1")
+			_ = prod2Rev1Image
+			prod2Rev2Image := fakeDeploymentImage(PropagationName, "prod-2", "rev-2")
+			_ = prod2Rev2Image
+			prod3Rev1Image := fakeDeploymentImage(PropagationName, "prod-3", "rev-1")
+			_ = prod3Rev1Image
+			prod3Rev2Image := fakeDeploymentImage(PropagationName, "prod-3", "rev-2")
+			_ = prod3Rev2Image
+
+			config := config.Config{
+				Environments: []config.Environment{{
+					Name: "prod",
+					Waves: []config.Wave{{
+						BakeTime:    metav1.Duration{Duration: 1 * time.Hour},
+						Deployments: []string{"prod-1"},
+					}, {
+						BakeTime:    metav1.Duration{Duration: 1 * time.Hour},
+						Deployments: []string{"prod-2"},
+					}, {
+						BakeTime:    metav1.Duration{Duration: 1 * time.Hour},
+						Deployments: []string{"prod-3"},
+					}},
+					// TODO: not implemented
+					ReleaseCadence: config.ReleaseCadence{
+						WaitTime: metav1.Duration{Duration: 2 * time.Hour},
+					},
+				}},
+			}
+
+			repository, err := name.NewRepository(fmt.Sprintf("%s/k8s/%s", strings.TrimPrefix(registryServer.URL, "http://"), PropagationName))
+			Expect(err).NotTo(HaveOccurred())
+
+			ociClient := clients.NewOCIPropagationBackendClient(repository)
+			propagationConfigClient := clients.NewPropagationClient(&ociClient)
+			Expect(propagationConfigClient.PublishConfig(config)).To(Succeed())
+
+			// Set initial deployment versions
+			pushImage(prod1Rev2Image.image, PropagationName, "deploy", "prod-1", "latest")
+			pushImage(prod2Rev1Image.image, PropagationName, "deploy", "prod-2", "latest")
+			pushImage(prod3Rev1Image.image, PropagationName, "deploy", "prod-3", "latest")
+
+			By("By creating propagations and version ConfigMaps for each deployment")
+
+			createPropagation(ctx, PropagationName, PropagationProd1Namespace, "prod-1", "prod")
+			createPropagation(ctx, PropagationName, PropagationProd2Namespace, "prod-2", "prod")
+			createPropagation(ctx, PropagationName, PropagationProd3Namespace, "prod-3", "prod")
+
+			createDeployedVersionConfigMap(PropagationName, PropagationProd1Namespace, "rev-2")
+			createDeployedVersionConfigMap(PropagationName, PropagationProd2Namespace, "rev-1")
+			createDeployedVersionConfigMap(PropagationName, PropagationProd3Namespace, "rev-1")
+
+			By("prod-1 waiting for prod-2 and prod-3 to reach its version when there's a new version available")
+			prod1Rev3Image := fakeDeploymentImage(PropagationName, "prod-1", "rev-3")
+			_ = prod1Rev3Image
+			prod2Rev3Image := fakeDeploymentImage(PropagationName, "prod-2", "rev-3")
+			_ = prod2Rev3Image
+			prod3Rev3Image := fakeDeploymentImage(PropagationName, "prod-3", "rev-3")
+			_ = prod3Rev3Image
+
+			// check that prod-1 is still at rev-2
+			assertPropagatedDeployment(Consistently, PropagationName, "prod-1", prod1Rev2Image)
+
+			By("prod-2 upgrading to rev-2 after prod-1 is healthy for enough time")
+			// TODO: change time to be enough for prod-1 to be healthy
+			// assertPropagatedDeployment(Consistently, PropagationName, "prod-2", prod2Rev1ImageDigest)
+			// assertPropagatedDeployment(Eventually, PropagationName, "prod-2", prod2Rev2ImageDigest)
+			// assertPropagatedDeployment(Consistently, PropagationName, "prod-1", prod1Rev2ImageDigest)
+			// // Ensure prod-2 is waiting for health status and prod-3 is waiting for prod-2 to upgrade to rev-2 and be healthy
+			// assertPropagatedDeployment(Consistently, PropagationName, "prod-3", prod3Rev1ImageDigest)
+			// assertPropagatedDeployment(Consistently, PropagationName, "prod-2", prod2Rev2ImageDigest)
+			// assertPropagatedDeployment(Consistently, PropagationName, "prod-2", prod2Rev2ImageDigest)
+
+			By("prod-1 and prod-2 waiting for prod-3 to reach its version when there's a new version available")
+
+			By("prod-3 upgrading to rev-2 after prod-2 is healthy for enough time")
+
+			By("prod-1 upgrading to new rev-3")
+
 		})
 	})
 
 })
+
+type testImage struct {
+	image   v1.Image
+	digest  v1.Hash
+	version string
+}
+
+func fakeDeploymentImage(propagationName, deployment, version string) testImage {
+	image, err := mutate.AppendLayers(empty.Image, static.NewLayer([]byte(fmt.Sprintf("%s/%s", deployment, version)), typescrane.MediaType("fake")))
+	Expect(err).ShouldNot(HaveOccurred())
+	digest, err := image.Digest()
+	Expect(err).ShouldNot(HaveOccurred())
+	fmt.Printf("Fake deploy image for deployment %s, version %s has digest %s\n", deployment, version, digest)
+	pushImage(image, propagationName, "manifests", deployment, version)
+	pushImage(image, propagationName, "manifests", deployment, "latest")
+	return testImage{
+		image:   image,
+		digest:  digest,
+		version: version,
+	}
+}
+
+func pushImage(image v1.Image, propagationName, artifactType, deployment, tag string) {
+	imageURL := fmt.Sprintf("%s/k8s/%s/%s/%s:%s", registryEndpoint, propagationName, artifactType, deployment, tag)
+	fmt.Println("Pushing manifest to", imageURL)
+	Expect(
+		crane.Push(image, imageURL),
+	).To(Succeed())
+}
+
+func createPropagation(ctx context.Context, propagationName, propagationNamespace, name, environment string) {
+	Expect(k8sClient.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: propagationNamespace,
+		},
+	})).Should(Succeed())
+	Eventually(func() error {
+		return k8sClient.Get(ctx, types.NamespacedName{Name: propagationNamespace}, &corev1.Namespace{})
+	}).Should(Succeed())
+
+	propagation := &v1alpha1.Propagation{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "kuberik.io/v1alpha1",
+			Kind:       "Propagation",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      propagationName,
+			Namespace: propagationNamespace,
+		},
+		Spec: v1alpha1.PropagationSpec{
+			Backend: v1alpha1.PropagationBackend{
+				BaseUrl: fmt.Sprintf("oci://%s/k8s/%s", registryEndpoint, propagationName),
+			},
+			Deployment: v1alpha1.Deployment{
+				Name:        name,
+				Environment: environment,
+				Wave:        1,
+				Version: v1alpha1.LocalObjectField{
+					APIVersion: "v1",
+					Kind:       "ConfigMap",
+					Name:       propagationName,
+					FieldPath:  "data.version",
+				},
+			},
+			PollInterval: metav1.Duration{Duration: time.Second},
+		},
+	}
+	Expect(k8sClient.Create(ctx, propagation)).Should(Succeed())
+}
+
+func createDeployedVersionConfigMap(propagationName, propagationNamespace, version string) {
+	deployedVersionConfigMap := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      propagationName,
+			Namespace: propagationNamespace,
+		},
+		Data: map[string]string{
+			"version": version,
+		},
+	}
+	Expect(k8sClient.Create(ctx, deployedVersionConfigMap)).Should(Succeed())
+}
