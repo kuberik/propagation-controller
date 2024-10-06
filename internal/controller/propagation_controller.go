@@ -153,12 +153,26 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	}
 	statusesErr := getStatusErrors.Wait()
-	// TODO: Set condition
-	propagation.Status.DeploymentStatusesReports = reports
-	err = r.Client.Status().Update(ctx, propagation)
 	if statusesErr != nil {
+		meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
+			Type:               "StatusesFetched",
+			Status:             metav1.ConditionFalse,
+			Message:            fmt.Sprintf("Error fetching statuses: %v", statusesErr),
+			ObservedGeneration: propagation.Generation,
+			Reason:             "StatusesFetchFailed",
+		})
+		r.Client.Status().Update(ctx, propagation)
 		return ctrl.Result{}, statusesErr
-	} else if err != nil {
+	}
+	meta.SetStatusCondition(&propagation.Status.Conditions, metav1.Condition{
+		Type:               "StatusesFetched",
+		Status:             metav1.ConditionTrue,
+		Message:            "Statuses fetched",
+		ObservedGeneration: propagation.Generation,
+		Reason:             "StatusesFetchSuccess",
+	})
+	propagation.Status.DeploymentStatusesReports = reports
+	if err := r.Client.Status().Update(ctx, propagation); err != nil {
 		return ctrl.Result{}, err
 	}
 
