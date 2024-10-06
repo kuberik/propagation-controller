@@ -380,3 +380,101 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 	}
 
 }
+
+func TestDeployWithFromConfig(t *testing.T) {
+	configFull := config.Config{
+		Environments: []config.Environment{{
+			Name: "dev",
+			Waves: []config.Wave{{
+				Deployments: []string{
+					"frankfurt-dev-1",
+				},
+			}},
+		}, {
+			Name: "production",
+			Waves: []config.Wave{{
+				Deployments: []string{
+					"frankfurt-production-1",
+				},
+			}, {
+				Deployments: []string{
+					"frankfurt-production-2",
+				},
+			}, {
+				Deployments: []string{
+					"frankfurt-production-3",
+					"frankfurt-production-4",
+				},
+			}},
+		}},
+	}
+
+	testCases := []struct {
+		input    string
+		inputEnv string
+		want     []string
+		config   config.Config
+		wantErr  bool
+	}{{
+		config:   configFull,
+		input:    "frankfurt-dev-1",
+		inputEnv: "dev",
+		want:     []string{},
+	}, {
+		config:   configFull,
+		input:    "frankfurt-production-1",
+		inputEnv: "production",
+		want: []string{
+			"frankfurt-production-2",
+			"frankfurt-production-3",
+			"frankfurt-production-4",
+		},
+	}, {
+		config:   configFull,
+		input:    "frankfurt-production-2",
+		inputEnv: "production",
+		want: []string{
+			"frankfurt-production-3",
+			"frankfurt-production-4",
+		},
+	}, {
+		config:   configFull,
+		input:    "frankfurt-production-3",
+		inputEnv: "production",
+		want:     []string{},
+	}, {
+		config:   configFull,
+		input:    "frankfurt-production-4",
+		inputEnv: "production",
+		want:     []string{},
+	}, {
+		config:   configFull,
+		input:    "frankfurt-production-5",
+		inputEnv: "production",
+		wantErr:  true,
+	}, {
+		config:   configFull,
+		input:    "frankfurt-production-4",
+		inputEnv: "non-existant",
+		wantErr:  true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			deployWith, err := deployWithFromConfig(v1alpha1.Propagation{
+				Spec: v1alpha1.PropagationSpec{
+					Deployment: v1alpha1.Deployment{
+						Name:        tc.input,
+						Environment: tc.inputEnv,
+					},
+				},
+			}, tc.config)
+			assert.Equal(t, err != nil, tc.wantErr)
+			if !tc.wantErr {
+				assert.Equal(t, tc.want, deployWith)
+			} else {
+				assert.Nil(t, deployWith)
+			}
+		})
+	}
+}

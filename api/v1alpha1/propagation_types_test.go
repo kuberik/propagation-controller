@@ -372,12 +372,15 @@ func TestNextVersion(t *testing.T) {
 		propagation: Propagation{
 			Spec: PropagationSpec{},
 			Status: PropagationStatus{
-				DeployAfter: DeployAfter{
-					Deployments: []string{
-						"prod-eu1",
-					},
-					BakeTime: metav1.Duration{
-						Duration: time.Hour * 4,
+				DeployConditions: DeployConditions{
+
+					DeployAfter: DeployAfter{
+						Deployments: []string{
+							"prod-eu1",
+						},
+						BakeTime: metav1.Duration{
+							Duration: time.Hour * 4,
+						},
 					},
 				},
 				DeploymentStatusesReports: []DeploymentStatusesReport{{
@@ -394,12 +397,14 @@ func TestNextVersion(t *testing.T) {
 		propagation: Propagation{
 			Spec: PropagationSpec{},
 			Status: PropagationStatus{
-				DeployAfter: DeployAfter{
-					Deployments: []string{
-						"prod-eu1",
-					},
-					BakeTime: metav1.Duration{
-						Duration: time.Hour * 4,
+				DeployConditions: DeployConditions{
+					DeployAfter: DeployAfter{
+						Deployments: []string{
+							"prod-eu1",
+						},
+						BakeTime: metav1.Duration{
+							Duration: time.Hour * 4,
+						},
 					},
 				},
 				DeploymentStatusesReports: []DeploymentStatusesReport{{
@@ -417,12 +422,14 @@ func TestNextVersion(t *testing.T) {
 		propagation: Propagation{
 			Spec: PropagationSpec{},
 			Status: PropagationStatus{
-				DeployAfter: DeployAfter{
-					Deployments: []string{
-						"prod-eu1",
-					},
-					BakeTime: metav1.Duration{
-						Duration: time.Hour * 4,
+				DeployConditions: DeployConditions{
+					DeployAfter: DeployAfter{
+						Deployments: []string{
+							"prod-eu1",
+						},
+						BakeTime: metav1.Duration{
+							Duration: time.Hour * 4,
+						},
 					},
 				},
 				DeploymentStatusesReports: []DeploymentStatusesReport{{

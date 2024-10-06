@@ -267,19 +267,33 @@ spec:
                   - type
                   type: object
                 type: array
-              deployAfter:
+              deployConditions:
+                description: DeployConditions defines the conditions for when and
+                  how the deployment should be propagated.
                 properties:
-                  bakeTime:
-                    description: 'TODO: rename to bake time Propagtion will only be
-                      performed after all the deployments specified as dependencies
-                      report continous healthy states for the specifed duration. In
-                      case there''s multiple versions satisfying the condition the
-                      newest one will be used.'
-                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
-                    type: string
-                  deployments:
-                    description: Propagation will proceed only after all listed deployments
-                      report a healthy version for the specified amount of time.
+                  deployAfter:
+                    description: Propagation will use these conditions to determine
+                      to which version to propagate.
+                    properties:
+                      bakeTime:
+                        description: 'TODO: rename to bake time Propagtion will only
+                          be performed after all the deployments specified as dependencies
+                          report continous healthy states for the specifed duration.
+                          In case there''s multiple versions satisfying the condition
+                          the newest one will be used.'
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                      deployments:
+                        description: Propagation will proceed only after all listed
+                          deployments report a healthy version for the specified amount
+                          of time.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  deployedWith:
+                    description: Propagation will not proceed until all the listed
+                      deployments have the same version as the current deployment.
                     items:
                       type: string
                     type: array

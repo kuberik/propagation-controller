@@ -109,6 +109,15 @@ type DeployAfter struct {
 	BakeTime metav1.Duration `json:"bakeTime,omitempty"`
 }
 
+// DeployConditions defines the conditions for when and how the deployment should be propagated.
+type DeployConditions struct {
+	// Propagation will use these conditions to determine to which version to propagate.
+	DeployAfter `json:"deployAfter,omitempty"`
+
+	// Propagation will not proceed until all the listed deployments have the same version as the current deployment.
+	DeployWith []string `json:"deployedWith,omitempty"`
+}
+
 type LocalObjectField struct {
 	// Kind of the referent.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
@@ -137,7 +146,7 @@ type PropagationStatus struct {
 	DeploymentStatus          DeploymentStatus           `json:"deploymentStatus,omitempty"`
 	Conditions                []metav1.Condition         `json:"conditions,omitempty"`
 	DeploymentStatusesReports []DeploymentStatusesReport `json:"deploymentStatusesReports,omitempty"`
-	DeployAfter               DeployAfter                `json:"deployAfter,omitempty"`
+	DeployConditions          DeployConditions           `json:"deployConditions,omitempty"`
 }
 
 func (s *PropagationStatus) FindDeploymentStatusReport(deployment string) *DeploymentStatusesReport {
@@ -177,10 +186,10 @@ func (r *DeploymentStatusesReport) VersionHealthyDuration(version string) time.D
 }
 
 func (r *DeploymentStatusesReport) AppendStatus(status DeploymentStatus) {
-	statusCount := len(r.Statuses)
-	if statusCount == 0 {
+	lastStatus := r.LastStatus()
+	if lastStatus == nil {
 		r.Statuses = append(r.Statuses, status)
-	} else if lastStatus := &r.Statuses[statusCount-1]; lastStatus.Version == status.Version && lastStatus.State == HealthStatePending {
+	} else if lastStatus.Version == status.Version && lastStatus.State == HealthStatePending {
 		lastStatus.State = status.State
 		if status.State == HealthStateHealthy {
 			lastStatus.Start = status.Start
@@ -188,10 +197,19 @@ func (r *DeploymentStatusesReport) AppendStatus(status DeploymentStatus) {
 	} else {
 		r.Statuses = append(r.Statuses, status)
 	}
-	statusCount = len(r.Statuses)
+	statusCount := len(r.Statuses)
 	if statusCount >= 2 && r.Statuses[statusCount-2].Version == status.Version &&
 		r.Statuses[statusCount-2].State == status.State {
 		r.Statuses = r.Statuses[:statusCount-1]
+	}
+}
+
+func (r *DeploymentStatusesReport) LastStatus() *DeploymentStatus {
+	statusCount := len(r.Statuses)
+	if statusCount == 0 {
+		return nil
+	} else {
+		return &r.Statuses[statusCount-1]
 	}
 }
 
@@ -217,7 +235,7 @@ type Propagation struct {
 
 func (p *Propagation) NextVersion() string {
 	// Double check because it could be quite dangerous if non-first stage gets propagated to latest
-	if len(p.Status.DeploymentStatusesReports) == 0 && len(p.Status.DeployAfter.Deployments) == 0 {
+	if len(p.Status.DeploymentStatusesReports) == 0 && len(p.Status.DeployConditions.DeployAfter.Deployments) == 0 {
 		return name.DefaultTag
 	}
 	versions := []string{}
@@ -232,7 +250,7 @@ func (p *Propagation) NextVersion() string {
 versions:
 	for _, v := range versions {
 		for _, r := range p.Status.DeploymentStatusesReports {
-			if p.Status.DeployAfter.BakeTime.Duration > r.VersionHealthyDuration(v) {
+			if p.Status.DeployConditions.DeployAfter.BakeTime.Duration > r.VersionHealthyDuration(v) {
 				continue versions
 			}
 		}
