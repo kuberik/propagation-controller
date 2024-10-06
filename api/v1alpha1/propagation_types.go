@@ -64,15 +64,6 @@ func (pb PropagationBackend) TrimScheme() (string, error) {
 }
 
 type Deployment struct {
-	// Propagation will not proceed if, as a result of propagation, there will be more than two active versions
-	// deployed across the deployments within the same environment. This can be used if there are multiple sites
-	// which are deployed after each other (see Waves) but represent the same environment. In that case the rollout
-	// of a single version can be preformed across all sites before starting a rollout for a newer version.
-	Environment string `json:"environment,omitempty"`
-
-	// TODO:
-	Wave int `json:"wave,omitempty"`
-
 	// Name of the deployment.
 	Name string `json:"name,omitempty"`
 
@@ -234,22 +225,27 @@ type Propagation struct {
 }
 
 func (p *Propagation) NextVersion() string {
-	// Double check because it could be quite dangerous if non-first stage gets propagated to latest
-	if len(p.Status.DeploymentStatusesReports) == 0 && len(p.Status.DeployConditions.DeployAfter.Deployments) == 0 {
+	if len(p.Status.DeployConditions.DeployAfter.Deployments) == 0 {
 		return name.DefaultTag
 	}
 	versions := []string{}
-	statuses := p.Status.DeploymentStatusesReports[0].Statuses
-	for i := len(statuses) - 1; i >= 0; i-- {
-		version := statuses[i].Version
-		if !slices.Contains(versions, version) {
-			versions = append(versions, version)
+	for _, report := range p.Status.DeploymentStatusesReports {
+		if report.DeploymentName == p.Status.DeployConditions.DeployAfter.Deployments[0] {
+			for i := len(report.Statuses) - 1; i >= 0; i-- {
+				version := report.Statuses[i].Version
+				if !slices.Contains(versions, version) {
+					versions = append(versions, version)
+				}
+			}
 		}
 	}
 
 versions:
 	for _, v := range versions {
 		for _, r := range p.Status.DeploymentStatusesReports {
+			if !slices.Contains(p.Status.DeployConditions.DeployAfter.Deployments, r.DeploymentName) {
+				continue
+			}
 			if p.Status.DeployConditions.DeployAfter.BakeTime.Duration > r.VersionHealthyDuration(v) {
 				continue versions
 			}

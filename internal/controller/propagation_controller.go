@@ -256,11 +256,9 @@ func (r *PropagationReconciler) SetReadyConditionFalse(ctx context.Context, prop
 func deployAfterFromConfig(propagation v1alpha1.Propagation, c config.Config) (*v1alpha1.DeployAfter, error) {
 	var lastWave config.Wave
 	for _, env := range c.Environments {
-		for waveIdx, wave := range env.Waves {
+		for _, wave := range env.Waves {
 			for _, deployment := range wave.Deployments {
-				if env.Name == propagation.Spec.Deployment.Environment &&
-					waveIdx+1 == propagation.Spec.Deployment.Wave &&
-					deployment == propagation.Spec.Deployment.Name {
+				if deployment == propagation.Spec.Deployment.Name {
 					return &v1alpha1.DeployAfter{
 						Deployments: lastWave.Deployments,
 						BakeTime:    lastWave.BakeTime,
@@ -279,7 +277,7 @@ func deployWithFromConfig(propagation v1alpha1.Propagation, c config.Config) ([]
 	deployments := []string{}
 	for _, env := range c.Environments {
 		for waveIdx, wave := range env.Waves {
-			if env.Name == propagation.Spec.Deployment.Environment && slices.Contains(wave.Deployments, propagation.Spec.Deployment.Name) {
+			if slices.Contains(wave.Deployments, propagation.Spec.Deployment.Name) {
 				for _, wave := range env.Waves[waveIdx+1:] {
 					deployments = append(deployments, wave.Deployments...)
 				}

@@ -53,15 +53,6 @@ spec:
                 type: object
               deployment:
                 properties:
-                  environment:
-                    description: Propagation will not proceed if, as a result of propagation,
-                      there will be more than two active versions deployed across
-                      the deployments within the same environment. This can be used
-                      if there are multiple sites which are deployed after each other
-                      (see Waves) but represent the same environment. In that case
-                      the rollout of a single version can be preformed across all
-                      sites before starting a rollout for a newer version.
-                    type: string
                   healthSelector:
                     description: "[!CAUTION] Not implemented! \n Selector for Health
                       objects which will be taken into account to determine if the
@@ -189,9 +180,6 @@ spec:
                         description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
                         type: string
                     type: object
-                  wave:
-                    description: 'TODO:'
-                    type: integer
                 type: object
               pollInterval:
                 type: string

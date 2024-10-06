@@ -298,21 +298,6 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 			},
 		}},
 	}
-	// configProdOnly := config.Config{
-	// 	Environments: []config.Environment{{
-	// 		Name: "production",
-	// 		Waves: []config.Wave{{
-	// 			BakeTime: metav1.Duration{Duration: time.Hour},
-	// 			Deployments: []string{
-	// 				"frankfurt-production-1",
-	// 			},
-	// 		}},
-	// 		ReleaseCadence: config.ReleaseCadence{
-	// 			// At 08:00 on Monday.
-	// 			Schedule: "0 8 * * 1",
-	// 		},
-	// 	}},
-	// }
 
 	testCases := []struct {
 		name    string
@@ -324,9 +309,7 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 		name:   "full config prod",
 		config: configFull,
 		input: v1alpha1.Deployment{
-			Name:        "frankfurt-production-1",
-			Environment: "production",
-			Wave:        1,
+			Name: "frankfurt-production-1",
 		},
 		want: v1alpha1.DeployAfter{
 			Deployments: []string{
@@ -335,30 +318,17 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 			BakeTime: metav1.Duration{Duration: time.Hour},
 		},
 	}, {
-		name:   "full config wrong wave",
+		name:   "full config missing deployment",
 		config: configFull,
 		input: v1alpha1.Deployment{
-			Name:        "frankfurt-production-1",
-			Environment: "production",
-			Wave:        2,
-		},
-		wantErr: true,
-	}, {
-		name:   "full config missing env",
-		config: configFull,
-		input: v1alpha1.Deployment{
-			Name:        "frankfurt-production-1",
-			Environment: "non-existant",
-			Wave:        1,
+			Name: "frankfurt-production-2",
 		},
 		wantErr: true,
 	}, {
 		name:   "full config dev",
 		config: configFull,
 		input: v1alpha1.Deployment{
-			Name:        "frankfurt-dev-1",
-			Environment: "dev",
-			Wave:        1,
+			Name: "frankfurt-dev-1",
 		},
 		want: v1alpha1.DeployAfter{},
 	}}
@@ -410,53 +380,41 @@ func TestDeployWithFromConfig(t *testing.T) {
 	}
 
 	testCases := []struct {
-		input    string
-		inputEnv string
-		want     []string
-		config   config.Config
-		wantErr  bool
+		input   string
+		want    []string
+		config  config.Config
+		wantErr bool
 	}{{
-		config:   configFull,
-		input:    "frankfurt-dev-1",
-		inputEnv: "dev",
-		want:     []string{},
+		config: configFull,
+		input:  "frankfurt-dev-1",
+		want:   []string{},
 	}, {
-		config:   configFull,
-		input:    "frankfurt-production-1",
-		inputEnv: "production",
+		config: configFull,
+		input:  "frankfurt-production-1",
 		want: []string{
 			"frankfurt-production-2",
 			"frankfurt-production-3",
 			"frankfurt-production-4",
 		},
 	}, {
-		config:   configFull,
-		input:    "frankfurt-production-2",
-		inputEnv: "production",
+		config: configFull,
+		input:  "frankfurt-production-2",
 		want: []string{
 			"frankfurt-production-3",
 			"frankfurt-production-4",
 		},
 	}, {
-		config:   configFull,
-		input:    "frankfurt-production-3",
-		inputEnv: "production",
-		want:     []string{},
+		config: configFull,
+		input:  "frankfurt-production-3",
+		want:   []string{},
 	}, {
-		config:   configFull,
-		input:    "frankfurt-production-4",
-		inputEnv: "production",
-		want:     []string{},
+		config: configFull,
+		input:  "frankfurt-production-4",
+		want:   []string{},
 	}, {
-		config:   configFull,
-		input:    "frankfurt-production-5",
-		inputEnv: "production",
-		wantErr:  true,
-	}, {
-		config:   configFull,
-		input:    "frankfurt-production-4",
-		inputEnv: "non-existant",
-		wantErr:  true,
+		config:  configFull,
+		input:   "frankfurt-production-5",
+		wantErr: true,
 	}}
 
 	for _, tc := range testCases {
@@ -464,8 +422,7 @@ func TestDeployWithFromConfig(t *testing.T) {
 			deployWith, err := deployWithFromConfig(v1alpha1.Propagation{
 				Spec: v1alpha1.PropagationSpec{
 					Deployment: v1alpha1.Deployment{
-						Name:        tc.input,
-						Environment: tc.inputEnv,
+						Name: tc.input,
 					},
 				},
 			}, tc.config)
