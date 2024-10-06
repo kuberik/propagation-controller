@@ -53,15 +53,6 @@ spec:
                 type: object
               deployment:
                 properties:
-                  environment:
-                    description: Propagation will not proceed if, as a result of propagation,
-                      there will be more than two active versions deployed across
-                      the deployments within the same environment. This can be used
-                      if there are multiple sites which are deployed after each other
-                      (see Waves) but represent the same environment. In that case
-                      the rollout of a single version can be preformed across all
-                      sites before starting a rollout for a newer version.
-                    type: string
                   healthSelector:
                     description: "[!CAUTION] Not implemented! \n Selector for Health
                       objects which will be taken into account to determine if the
@@ -189,9 +180,6 @@ spec:
                         description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
                         type: string
                     type: object
-                  wave:
-                    description: 'TODO:'
-                    type: integer
                 type: object
               pollInterval:
                 type: string
@@ -267,19 +255,33 @@ spec:
                   - type
                   type: object
                 type: array
-              deployAfter:
+              deployConditions:
+                description: DeployConditions defines the conditions for when and
+                  how the deployment should be propagated.
                 properties:
-                  bakeTime:
-                    description: 'TODO: rename to bake time Propagtion will only be
-                      performed after all the deployments specified as dependencies
-                      report continous healthy states for the specifed duration. In
-                      case there''s multiple versions satisfying the condition the
-                      newest one will be used.'
-                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
-                    type: string
-                  deployments:
-                    description: Propagation will proceed only after all listed deployments
-                      report a healthy version for the specified amount of time.
+                  deployAfter:
+                    description: Propagation will use these conditions to determine
+                      to which version to propagate.
+                    properties:
+                      bakeTime:
+                        description: Propagtion will only be performed after all the
+                          deployments specified as dependencies report continous healthy
+                          states for the specifed duration. In case there's multiple
+                          versions satisfying the condition the newest one will be
+                          used.
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                      deployments:
+                        description: Propagation will proceed only after all listed
+                          deployments report a healthy version for the specified amount
+                          of time.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  deployedWith:
+                    description: Propagation will not proceed until all the listed
+                      deployments have the same version as the current deployment.
                     items:
                       type: string
                     type: array
