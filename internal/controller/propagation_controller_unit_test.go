@@ -399,10 +399,7 @@ func TestDeployWithFromConfig(t *testing.T) {
 	}, {
 		config: configFull,
 		input:  "frankfurt-production-2",
-		want: []string{
-			"frankfurt-production-3",
-			"frankfurt-production-4",
-		},
+		want:   []string{},
 	}, {
 		config: configFull,
 		input:  "frankfurt-production-3",

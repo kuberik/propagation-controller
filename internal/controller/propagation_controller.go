@@ -172,8 +172,11 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// check if all deployWith are on the same version as current deployment
 	for _, deployment := range propagation.Status.DeployConditions.DeployWith {
 		deploymentStatus := propagation.Status.FindDeploymentStatusReport(deployment)
-		// TODO, also wait for bake time
-		if deploymentStatus == nil || deploymentStatus.LastStatus().Version != version || deploymentStatus.LastStatus().State != v1alpha1.HealthStateHealthy {
+		if deploymentStatus == nil ||
+			deploymentStatus.LastStatus().Version != version ||
+			deploymentStatus.LastStatus().State != v1alpha1.HealthStateHealthy ||
+			deploymentStatus.VersionHealthyDuration(version) < config.DeploymentBakeTime(deployment) {
+			log.Info(fmt.Sprintf("Waiting for deployment %s to bake", deployment))
 			return ctrl.Result{
 				Requeue:      true,
 				RequeueAfter: waitTime,
@@ -278,10 +281,13 @@ func deployWithFromConfig(propagation v1alpha1.Propagation, c config.Config) ([]
 	for _, env := range c.Environments {
 		for waveIdx, wave := range env.Waves {
 			if slices.Contains(wave.Deployments, propagation.Spec.Deployment.Name) {
-				for _, wave := range env.Waves[waveIdx+1:] {
-					deployments = append(deployments, wave.Deployments...)
+				if waveIdx == 0 {
+					for _, wave := range env.Waves[waveIdx+1:] {
+						deployments = append(deployments, wave.Deployments...)
+					}
+					return deployments, nil
 				}
-				return deployments, nil
+				return []string{}, nil
 			}
 		}
 	}

@@ -90,7 +90,6 @@ type DeployAfter struct {
 	// a healthy version for the specified amount of time.
 	Deployments []string `json:"deployments,omitempty"`
 
-	// TODO: rename to bake time
 	// Propagtion will only be performed after all the deployments specified as dependencies report
 	// continous healthy states for the specifed duration.
 	// In case there's multiple versions satisfying the condition the newest one will be used.
