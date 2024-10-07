@@ -193,16 +193,16 @@ func TestPropagate(t *testing.T) {
 	client := NewPropagationClient(&ociClient)
 
 	err = ociClient.Publish(ArtifactMetadata{
-		Deployment: "staging",
-		Type:       ManifestArtifactType,
-		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
+		Name:    "staging",
+		Type:    ManifestArtifactType,
+		Version: "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
 	}, &ociArtifact{image: empty.Image})
 	assert.NoError(t, err)
 
 	deploymentImage, err := ociClient.Fetch(
 		ArtifactMetadata{
-			Deployment: "staging",
-			Type:       DeployArtifactType,
+			Name: "staging",
+			Type: DeployArtifactType,
 		})
 	assert.ErrorContains(t, err, "NAME_UNKNOWN")
 	assert.Nil(t, deploymentImage)
@@ -212,8 +212,8 @@ func TestPropagate(t *testing.T) {
 
 	deploymentImage, err = ociClient.Fetch(
 		ArtifactMetadata{
-			Deployment: "staging",
-			Type:       DeployArtifactType,
+			Name: "staging",
+			Type: DeployArtifactType,
 		})
 	assert.NoError(t, err)
 	emptyImageDigest, err := empty.Image.Digest()
@@ -233,9 +233,9 @@ func TestPropagateCached(t *testing.T) {
 	ociClient := NewOCIPropagationBackendClient(repository)
 
 	err = ociClient.Publish(ArtifactMetadata{
-		Deployment: "staging",
-		Type:       ManifestArtifactType,
-		Version:    "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
+		Name:    "staging",
+		Type:    ManifestArtifactType,
+		Version: "abf1a799152d2655bbd7b4bf0b70422d7eda233f",
 	}, &ociArtifact{image: empty.Image})
 	assert.NoError(t, err)
 
@@ -256,8 +256,8 @@ func TestPropagateCached(t *testing.T) {
 
 	deploymentImage, err := ociClient.Fetch(
 		ArtifactMetadata{
-			Deployment: "staging",
-			Type:       DeployArtifactType,
+			Name: "staging",
+			Type: DeployArtifactType,
 		})
 	assert.ErrorContains(t, err, "NAME_UNKNOWN")
 	assert.Nil(t, deploymentImage)
@@ -279,6 +279,7 @@ func TestPropagateCached(t *testing.T) {
 
 func TestPublishConfigOCI(t *testing.T) {
 	input := config.Config{
+		Name: "test",
 		Environments: []config.Environment{{
 			Name: "dev",
 			Waves: []config.Wave{{
@@ -307,13 +308,13 @@ func TestPublishConfigOCI(t *testing.T) {
 	ociClient := NewOCIPropagationBackendClient(repository)
 	client := NewPropagationClient(&ociClient)
 
-	_, err = client.GetConfig()
+	_, err = client.GetConfig("test")
 	assert.ErrorContains(t, err, "NAME_UNKNOWN")
 
 	err = client.PublishConfig(input)
 	assert.NoError(t, err)
 
-	config, err := client.GetConfig()
+	config, err := client.GetConfig("test")
 	assert.NoError(t, err)
 	assert.Equal(t, input, *config)
 }

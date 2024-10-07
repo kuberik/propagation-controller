@@ -32,6 +32,7 @@ type PropagationSpec struct {
 	PollInterval metav1.Duration    `json:"pollInterval,omitempty"`
 	Backend      PropagationBackend `json:"backend,omitempty"`
 	Deployment   Deployment         `json:"deployment,omitempty"`
+	ConfigName   string             `json:"configName,omitempty"`
 }
 
 type PropagationBackend struct {

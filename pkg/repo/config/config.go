@@ -5,6 +5,7 @@ import (
 )
 
 type Config struct {
+	Name         string        `json:"name,omitempty"`
 	Environments []Environment `json:"environment,omitempty"`
 }
 

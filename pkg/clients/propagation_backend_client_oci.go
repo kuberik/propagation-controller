@@ -37,9 +37,9 @@ const (
 )
 
 type ArtifactMetadata struct {
-	Deployment string
-	Type       ArtifactType
-	Version    string
+	Name    string
+	Type    ArtifactType
+	Version string
 }
 
 type PropagationBackendClient interface {
@@ -108,7 +108,7 @@ func (c *OCIPropagationBackendClient) ociTagFromArtifactMetadata(m ArtifactMetad
 	default:
 		panic("unknown artifact type")
 	}
-	return c.repository.Registry.Repo(c.repository.RepositoryStr(), subpath, m.Deployment).Tag(version).Name()
+	return c.repository.Registry.Repo(c.repository.RepositoryStr(), subpath, m.Name).Tag(version).Name()
 }
 
 // Digest implements PropagationBackendClient.
@@ -324,7 +324,7 @@ func (c *PropagationClient) publishArtifact(metadata ArtifactMetadata, data inte
 }
 
 func (c *PropagationClient) PublishStatus(deployment string, status v1alpha1.DeploymentStatus) error {
-	return c.publishArtifact(ArtifactMetadata{Deployment: deployment, Type: DeployStatusArtifactType}, status)
+	return c.publishArtifact(ArtifactMetadata{Name: deployment, Type: DeployStatusArtifactType}, status)
 }
 
 func (c *PropagationClient) fetchArtifact(metadata ArtifactMetadata, dest interface{}) error {
@@ -337,7 +337,7 @@ func (c *PropagationClient) fetchArtifact(metadata ArtifactMetadata, dest interf
 
 func (c *PropagationClient) GetStatus(deployment string) (*v1alpha1.DeploymentStatus, error) {
 	status := &v1alpha1.DeploymentStatus{}
-	err := c.fetchArtifact(ArtifactMetadata{Type: DeployStatusArtifactType, Deployment: deployment}, status)
+	err := c.fetchArtifact(ArtifactMetadata{Type: DeployStatusArtifactType, Name: deployment}, status)
 	if err != nil {
 		return nil, err
 	}
@@ -346,14 +346,14 @@ func (c *PropagationClient) GetStatus(deployment string) (*v1alpha1.DeploymentSt
 
 func (c *PropagationClient) Propagate(deployment, version string) error {
 	artifact, err := c.client.Fetch(
-		ArtifactMetadata{Type: ManifestArtifactType, Deployment: deployment, Version: version},
+		ArtifactMetadata{Type: ManifestArtifactType, Name: deployment, Version: version},
 	)
 	if err != nil {
 		return err
 	}
 
 	if err := c.client.Publish(
-		ArtifactMetadata{Type: DeployArtifactType, Deployment: deployment},
+		ArtifactMetadata{Type: DeployArtifactType, Name: deployment},
 		artifact,
 	); err != nil {
 		return err
@@ -363,14 +363,14 @@ func (c *PropagationClient) Propagate(deployment, version string) error {
 
 func (c *PropagationClient) PublishConfig(config config.Config) error {
 	return c.publishArtifact(
-		ArtifactMetadata{Type: PropagationConfigArtifactType},
+		ArtifactMetadata{Type: PropagationConfigArtifactType, Name: config.Name},
 		config,
 	)
 }
 
-func (c *PropagationClient) GetConfig() (*config.Config, error) {
+func (c *PropagationClient) GetConfig(configName string) (*config.Config, error) {
 	config := &config.Config{}
-	err := c.fetchArtifact(ArtifactMetadata{Type: PropagationConfigArtifactType}, config)
+	err := c.fetchArtifact(ArtifactMetadata{Type: PropagationConfigArtifactType, Name: configName}, config)
 	if err != nil {
 		return nil, err
 	}

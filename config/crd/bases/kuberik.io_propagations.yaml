@@ -51,6 +51,8 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              configName:
+                type: string
               deployment:
                 properties:
                   environment:

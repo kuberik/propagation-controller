@@ -73,7 +73,7 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.SetReadyConditionFalse(ctx, propagation, err, BackendInitFailedPropagationReadyReason)
 	}
 
-	config, err := propagationClient.GetConfig()
+	config, err := propagationClient.GetConfig(propagation.Spec.ConfigName)
 	if err != nil {
 		return r.SetReadyConditionFalse(ctx, propagation, err, ConfigInitFailedPropagationReadyReason)
 	}
