@@ -64,15 +64,6 @@ func (pb PropagationBackend) TrimScheme() (string, error) {
 }
 
 type Deployment struct {
-	// Propagation will not proceed if, as a result of propagation, there will be more than two active versions
-	// deployed across the deployments within the same environment. This can be used if there are multiple sites
-	// which are deployed after each other (see Waves) but represent the same environment. In that case the rollout
-	// of a single version can be preformed across all sites before starting a rollout for a newer version.
-	Environment string `json:"environment,omitempty"`
-
-	// TODO:
-	Wave int `json:"wave,omitempty"`
-
 	// Name of the deployment.
 	Name string `json:"name,omitempty"`
 
@@ -99,7 +90,6 @@ type DeployAfter struct {
 	// a healthy version for the specified amount of time.
 	Deployments []string `json:"deployments,omitempty"`
 
-	// TODO: rename to bake time
 	// Propagtion will only be performed after all the deployments specified as dependencies report
 	// continous healthy states for the specifed duration.
 	// In case there's multiple versions satisfying the condition the newest one will be used.
@@ -107,6 +97,15 @@ type DeployAfter struct {
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +required
 	BakeTime metav1.Duration `json:"bakeTime,omitempty"`
+}
+
+// DeployConditions defines the conditions for when and how the deployment should be propagated.
+type DeployConditions struct {
+	// Propagation will use these conditions to determine to which version to propagate.
+	DeployAfter `json:"deployAfter,omitempty"`
+
+	// Propagation will not proceed until all the listed deployments have the same version as the current deployment.
+	DeployWith []string `json:"deployedWith,omitempty"`
 }
 
 type LocalObjectField struct {
@@ -137,7 +136,7 @@ type PropagationStatus struct {
 	DeploymentStatus          DeploymentStatus           `json:"deploymentStatus,omitempty"`
 	Conditions                []metav1.Condition         `json:"conditions,omitempty"`
 	DeploymentStatusesReports []DeploymentStatusesReport `json:"deploymentStatusesReports,omitempty"`
-	DeployAfter               DeployAfter                `json:"deployAfter,omitempty"`
+	DeployConditions          DeployConditions           `json:"deployConditions,omitempty"`
 }
 
 func (s *PropagationStatus) FindDeploymentStatusReport(deployment string) *DeploymentStatusesReport {
@@ -177,10 +176,10 @@ func (r *DeploymentStatusesReport) VersionHealthyDuration(version string) time.D
 }
 
 func (r *DeploymentStatusesReport) AppendStatus(status DeploymentStatus) {
-	statusCount := len(r.Statuses)
-	if statusCount == 0 {
+	lastStatus := r.LastStatus()
+	if lastStatus == nil {
 		r.Statuses = append(r.Statuses, status)
-	} else if lastStatus := &r.Statuses[statusCount-1]; lastStatus.Version == status.Version && lastStatus.State == HealthStatePending {
+	} else if lastStatus.Version == status.Version && lastStatus.State == HealthStatePending {
 		lastStatus.State = status.State
 		if status.State == HealthStateHealthy {
 			lastStatus.Start = status.Start
@@ -188,10 +187,19 @@ func (r *DeploymentStatusesReport) AppendStatus(status DeploymentStatus) {
 	} else {
 		r.Statuses = append(r.Statuses, status)
 	}
-	statusCount = len(r.Statuses)
+	statusCount := len(r.Statuses)
 	if statusCount >= 2 && r.Statuses[statusCount-2].Version == status.Version &&
 		r.Statuses[statusCount-2].State == status.State {
 		r.Statuses = r.Statuses[:statusCount-1]
+	}
+}
+
+func (r *DeploymentStatusesReport) LastStatus() *DeploymentStatus {
+	statusCount := len(r.Statuses)
+	if statusCount == 0 {
+		return nil
+	} else {
+		return &r.Statuses[statusCount-1]
 	}
 }
 
@@ -216,23 +224,28 @@ type Propagation struct {
 }
 
 func (p *Propagation) NextVersion() string {
-	// Double check because it could be quite dangerous if non-first stage gets propagated to latest
-	if len(p.Status.DeploymentStatusesReports) == 0 && len(p.Status.DeployAfter.Deployments) == 0 {
+	if len(p.Status.DeployConditions.DeployAfter.Deployments) == 0 {
 		return name.DefaultTag
 	}
 	versions := []string{}
-	statuses := p.Status.DeploymentStatusesReports[0].Statuses
-	for i := len(statuses) - 1; i >= 0; i-- {
-		version := statuses[i].Version
-		if !slices.Contains(versions, version) {
-			versions = append(versions, version)
+	for _, report := range p.Status.DeploymentStatusesReports {
+		if report.DeploymentName == p.Status.DeployConditions.DeployAfter.Deployments[0] {
+			for i := len(report.Statuses) - 1; i >= 0; i-- {
+				version := report.Statuses[i].Version
+				if !slices.Contains(versions, version) {
+					versions = append(versions, version)
+				}
+			}
 		}
 	}
 
 versions:
 	for _, v := range versions {
 		for _, r := range p.Status.DeploymentStatusesReports {
-			if p.Status.DeployAfter.BakeTime.Duration > r.VersionHealthyDuration(v) {
+			if !slices.Contains(p.Status.DeployConditions.DeployAfter.Deployments, r.DeploymentName) {
+				continue
+			}
+			if p.Status.DeployConditions.DeployAfter.BakeTime.Duration > r.VersionHealthyDuration(v) {
 				continue versions
 			}
 		}

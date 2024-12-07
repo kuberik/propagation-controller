@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
@@ -78,11 +79,11 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.SetReadyConditionFalse(ctx, propagation, err, ConfigInitFailedPropagationReadyReason)
 	}
 
-	deployAfter, err := deployAfterFromConfig(*propagation, *config)
+	deployConditions, err := deployConditionsFromConfig(*propagation, *config)
 	if err != nil {
 		return r.SetReadyConditionFalse(ctx, propagation, err, ConfigInitFailedPropagationReadyReason)
 	}
-	propagation.Status.DeployAfter = *deployAfter
+	propagation.Status.DeployConditions = *deployConditions
 	if err := r.Client.Status().Update(ctx, propagation); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -132,8 +133,9 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// if status healthy, propagate
 	// 1. fetch statuses
 	var getStatusErrors errgroup.Group
-	reports := make([]v1alpha1.DeploymentStatusesReport, len(propagation.Status.DeployAfter.Deployments))
-	for i, deployment := range propagation.Status.DeployAfter.Deployments {
+	requiredStatuses := append(propagation.Status.DeployConditions.DeployWith, propagation.Status.DeployConditions.DeployAfter.Deployments...)
+	reports := make([]v1alpha1.DeploymentStatusesReport, len(requiredStatuses))
+	for i, deployment := range requiredStatuses {
 		report := propagation.Status.FindDeploymentStatusReport(deployment)
 		if report == nil {
 			report = &v1alpha1.DeploymentStatusesReport{
@@ -180,6 +182,22 @@ func (r *PropagationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if waitTime == 0 {
 		waitTime = time.Minute
 	}
+
+	// check if all deployWith are on the same version as current deployment
+	for _, deployment := range propagation.Status.DeployConditions.DeployWith {
+		deploymentStatus := propagation.Status.FindDeploymentStatusReport(deployment)
+		if deploymentStatus == nil ||
+			deploymentStatus.LastStatus().Version != version ||
+			deploymentStatus.LastStatus().State != v1alpha1.HealthStateHealthy ||
+			deploymentStatus.VersionHealthyDuration(version) < config.DeploymentBakeTime(deployment) {
+			log.Info(fmt.Sprintf("Waiting for deployment %s to bake", deployment))
+			return ctrl.Result{
+				Requeue:      true,
+				RequeueAfter: waitTime,
+			}, nil
+		}
+	}
+
 	propagateVersion := propagation.NextVersion()
 	if propagateVersion == "" {
 		// TODO: Calculate from status how long to wait
@@ -255,11 +273,9 @@ func (r *PropagationReconciler) SetReadyConditionFalse(ctx context.Context, prop
 func deployAfterFromConfig(propagation v1alpha1.Propagation, c config.Config) (*v1alpha1.DeployAfter, error) {
 	var lastWave config.Wave
 	for _, env := range c.Environments {
-		for waveIdx, wave := range env.Waves {
+		for _, wave := range env.Waves {
 			for _, deployment := range wave.Deployments {
-				if env.Name == propagation.Spec.Deployment.Environment &&
-					waveIdx+1 == propagation.Spec.Deployment.Wave &&
-					deployment == propagation.Spec.Deployment.Name {
+				if deployment == propagation.Spec.Deployment.Name {
 					return &v1alpha1.DeployAfter{
 						Deployments: lastWave.Deployments,
 						BakeTime:    lastWave.BakeTime,
@@ -270,6 +286,41 @@ func deployAfterFromConfig(propagation v1alpha1.Propagation, c config.Config) (*
 		}
 	}
 	return nil, fmt.Errorf("failed to find the config for '%s' deployment", propagation.Spec.Deployment.Name)
+}
+
+// deployWithFromConfig deploys determines which deployments needs to have same version as the current deployment before proceeding to propagate to next version.
+// The returned list of deployments are all deployments from all subsequent waves in the same environment.
+func deployWithFromConfig(propagation v1alpha1.Propagation, c config.Config) ([]string, error) {
+	deployments := []string{}
+	for _, env := range c.Environments {
+		for waveIdx, wave := range env.Waves {
+			if slices.Contains(wave.Deployments, propagation.Spec.Deployment.Name) {
+				if waveIdx == 0 {
+					for _, wave := range env.Waves[waveIdx+1:] {
+						deployments = append(deployments, wave.Deployments...)
+					}
+					return deployments, nil
+				}
+				return []string{}, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("failed to find the config for '%s' deployment", propagation.Spec.Deployment.Name)
+}
+
+func deployConditionsFromConfig(propagation v1alpha1.Propagation, c config.Config) (*v1alpha1.DeployConditions, error) {
+	deployAfter, err := deployAfterFromConfig(propagation, c)
+	if err != nil {
+		return nil, err
+	}
+	deployWith, err := deployWithFromConfig(propagation, c)
+	if err != nil {
+		return nil, err
+	}
+	return &v1alpha1.DeployConditions{
+		DeployAfter: *deployAfter,
+		DeployWith:  deployWith,
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
