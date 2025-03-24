@@ -24,18 +24,12 @@ func (c *Config) DeploymentBakeTime(deployment string) time.Duration {
 }
 
 type Environment struct {
-	Name           string         `json:"name,omitempty"`
-	Waves          []Wave         `json:"waves,omitempty"`
-	ReleaseCadence ReleaseCadence `json:"releaseCadence,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Waves []Wave `json:"waves,omitempty"`
 }
 
 type Wave struct {
 	BakeTime metav1.Duration `json:"bakeTime,omitempty"`
 	// TODO: this should be populated from manifests
 	Deployments []string `json:"deployments,omitempty"`
-}
-
-type ReleaseCadence struct {
-	Schedule string          `json:"schedule,omitempty"`
-	WaitTime metav1.Duration `json:"waitTime,omitempty"`
 }

@@ -284,18 +284,11 @@ func TestPublishConfigOCI(t *testing.T) {
 			Waves: []config.Wave{{
 				BakeTime: metav1.Duration{Duration: time.Hour},
 			}},
-			ReleaseCadence: config.ReleaseCadence{
-				WaitTime: metav1.Duration{Duration: 2 * time.Hour},
-			},
 		}, {
 			Name: "prod",
 			Waves: []config.Wave{{
 				BakeTime: metav1.Duration{Duration: time.Hour},
 			}},
-			ReleaseCadence: config.ReleaseCadence{
-				// At 08:00 on Monday.
-				Schedule: "0 8 * * 1",
-			},
 		}},
 	}
 

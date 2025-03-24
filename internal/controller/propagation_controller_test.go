@@ -80,21 +80,12 @@ var _ = Describe("Propagation controller", func() {
 						BakeTime:    metav1.Duration{Duration: 1 * time.Hour},
 						Deployments: []string{"frankfurt-dev-1"},
 					}},
-					// TODO: not implemented
-					ReleaseCadence: config.ReleaseCadence{
-						WaitTime: metav1.Duration{Duration: 2 * time.Hour},
-					},
 				}, {
 					Name: "staging",
 					Waves: []config.Wave{{
 						BakeTime:    metav1.Duration{Duration: 4 * time.Hour},
 						Deployments: []string{"frankfurt-staging-1"},
 					}},
-					// TODO: not implemented
-					ReleaseCadence: config.ReleaseCadence{
-						// At 08:00 on Monday.
-						Schedule: "0 8 * * 1",
-					},
 				}},
 			}
 

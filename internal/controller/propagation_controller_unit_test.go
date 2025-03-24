@@ -281,9 +281,6 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 					"frankfurt-dev-1",
 				},
 			}},
-			ReleaseCadence: config.ReleaseCadence{
-				WaitTime: metav1.Duration{Duration: 2 * time.Hour},
-			},
 		}, {
 			Name: "production",
 			Waves: []config.Wave{{
@@ -292,10 +289,6 @@ func TestSetDeployAfterFromConfig(t *testing.T) {
 					"frankfurt-production-1",
 				},
 			}},
-			ReleaseCadence: config.ReleaseCadence{
-				// At 08:00 on Monday.
-				Schedule: "0 8 * * 1",
-			},
 		}},
 	}
 
