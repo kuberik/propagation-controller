@@ -3,20 +3,25 @@ package config
 import (
 	"time"
 
+	"slices"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type PropagationConfig struct {
+	Backend string `json:"backend,omitempty"`
+	Config  `json:",inline"`
+}
+
 type Config struct {
-	Environments []Environment `json:"environment,omitempty"`
+	Environments []Environment `json:"environments,omitempty"`
 }
 
 func (c *Config) DeploymentBakeTime(deployment string) time.Duration {
 	for _, env := range c.Environments {
 		for _, wave := range env.Waves {
-			for _, d := range wave.Deployments {
-				if d == deployment {
-					return wave.BakeTime.Duration
-				}
+			if slices.Contains(wave.Deployments, deployment) {
+				return wave.BakeTime.Duration
 			}
 		}
 	}

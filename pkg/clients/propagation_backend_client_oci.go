@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"reflect"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/crane"
@@ -171,12 +173,32 @@ type PropagationClientset struct {
 	clients   map[k8stypes.NamespacedName]*PropagationClient
 }
 
-func newPropagationBackendClient(baseUrl v1alpha1.PropagationBackend, secretData map[string][]byte) (PropagationBackendClient, error) {
-	protocol, err := baseUrl.Scheme()
+func scheme(baseUrl string) (string, error) {
+	u, err := url.Parse(string(baseUrl))
+	if err != nil {
+		return "", err
+	}
+	return u.Scheme, nil
+}
+
+func trimScheme(baseUrl string) (string, error) {
+	scheme, err := scheme(baseUrl)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(string(baseUrl), scheme+"://"), nil
+}
+
+func NewPropagationBackendClient(baseUrl string) (PropagationBackendClient, error) {
+	return newPropagationBackendClient(baseUrl, nil)
+}
+
+func newPropagationBackendClient(baseUrl string, secretData map[string][]byte) (PropagationBackendClient, error) {
+	protocol, err := scheme(baseUrl)
 	if err != nil {
 		return nil, err
 	}
-	url, err := baseUrl.TrimScheme()
+	url, err := trimScheme(baseUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +250,7 @@ func (pc *PropagationClientset) Propagation(propagation v1alpha1.Propagation) (*
 	}
 
 	key := k8stypes.NamespacedName{Name: propagation.Name, Namespace: propagation.Namespace}
-	newBackendClient, err := newPropagationBackendClient(propagation.Spec.Backend, secret.Data)
+	newBackendClient, err := newPropagationBackendClient(propagation.Spec.Backend.BaseUrl, secret.Data)
 	if err != nil {
 		return nil, err
 	}

@@ -17,9 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"net/url"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -45,22 +43,6 @@ type PropagationBackend struct {
 	// The secret name containing the authentication credentials
 	// +optional
 	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
-}
-
-func (pb PropagationBackend) Scheme() (string, error) {
-	u, err := url.Parse(string(pb.BaseUrl))
-	if err != nil {
-		return "", err
-	}
-	return u.Scheme, nil
-}
-
-func (pb PropagationBackend) TrimScheme() (string, error) {
-	scheme, err := pb.Scheme()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimPrefix(string(pb.BaseUrl), scheme+"://"), nil
 }
 
 type Deployment struct {

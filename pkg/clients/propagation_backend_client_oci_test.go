@@ -4,30 +4,19 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/pkg/repo/config"
+	testhelpers "github.com/kuberik/propagation-controller/pkg/test_helpers"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
-
-func localRegistry(intercepts ...http.Handler) *httptest.Server {
-	registry := registry.New()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for _, i := range intercepts {
-			i.ServeHTTP(w, r)
-		}
-		registry.ServeHTTP(w, r)
-	}))
-}
 
 func withRequestLog(requestLog *[]*http.Request) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +30,7 @@ func TestPublishStatusOCI(t *testing.T) {
 		Start:   metav1.NewTime(time.Date(2023, 9, 23, 8, 42, 0, 0, time.Local)),
 	}
 
-	registryServer := localRegistry()
+	registryServer := testhelpers.LocalRegistry()
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
@@ -63,7 +52,7 @@ func TestPublishStatusOCICached(t *testing.T) {
 	}
 
 	requestLog := []*http.Request{}
-	registryServer := localRegistry(withRequestLog(&requestLog))
+	registryServer := testhelpers.LocalRegistry(withRequestLog(&requestLog))
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
@@ -104,7 +93,7 @@ func TestGetStatusOCI(t *testing.T) {
 		Start:   metav1.NewTime(time.Date(2023, 9, 24, 8, 42, 0, 0, time.Local)),
 	}
 
-	registryServer := localRegistry()
+	registryServer := testhelpers.LocalRegistry()
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
@@ -127,7 +116,7 @@ func TestGetStatusOCICached(t *testing.T) {
 	}
 
 	requestLog := []*http.Request{}
-	registryServer := localRegistry(withRequestLog(&requestLog))
+	registryServer := testhelpers.LocalRegistry(withRequestLog(&requestLog))
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
@@ -184,7 +173,7 @@ func TestGetStatusOCICached(t *testing.T) {
 }
 
 func TestPropagate(t *testing.T) {
-	registryServer := localRegistry()
+	registryServer := testhelpers.LocalRegistry()
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
@@ -225,7 +214,7 @@ func TestPropagate(t *testing.T) {
 
 func TestPropagateCached(t *testing.T) {
 	requestLog := []*http.Request{}
-	registryServer := localRegistry(withRequestLog(&requestLog))
+	registryServer := testhelpers.LocalRegistry(withRequestLog(&requestLog))
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
@@ -299,7 +288,7 @@ func TestPublishConfigOCI(t *testing.T) {
 		}},
 	}
 
-	registryServer := localRegistry()
+	registryServer := testhelpers.LocalRegistry()
 	defer registryServer.Close()
 	repository, err := name.NewRepository(fmt.Sprintf("%s/deployments/foo", strings.TrimPrefix(registryServer.URL, "http://")))
 	assert.NoError(t, err)
