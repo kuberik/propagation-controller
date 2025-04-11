@@ -34,6 +34,7 @@ import (
 
 	v1alpha1 "github.com/kuberik/propagation-controller/api/v1alpha1"
 	"github.com/kuberik/propagation-controller/internal/controller"
+	"github.com/kuberik/propagation-controller/internal/controller/promotion"
 	"github.com/kuberik/propagation-controller/pkg/clients"
 	//+kubebuilder:scaffold:imports
 )
@@ -96,6 +97,13 @@ func main() {
 		PropagationClientset: clients.NewPropagationClientset(mgr.GetClient()),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Propagation")
+		os.Exit(1)
+	}
+	if err = (&promotion.ReleasePromotionReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ReleasePromotion")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

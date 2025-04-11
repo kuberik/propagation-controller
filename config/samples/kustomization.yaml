@@ -3,4 +3,5 @@ resources:
 - _v1alpha1_propagation.yaml
 - _v1alpha1_healthstatus.yaml
 - _v1alpha1_health.yaml
+- promotion_v1alpha1_releasepromotion.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

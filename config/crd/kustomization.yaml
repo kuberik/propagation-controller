@@ -5,6 +5,7 @@ resources:
 - bases/kuberik.io_propagations.yaml
 - bases/kuberik.io_healthstatuses.yaml
 - bases/kuberik.io_healths.yaml
+- bases/promotion.kuberik.io_releasepromotions.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

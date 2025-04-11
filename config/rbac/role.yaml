@@ -30,3 +30,29 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - promotion.kuberik.io
+  resources:
+  - releasepromotions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - promotion.kuberik.io
+  resources:
+  - releasepromotions/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - promotion.kuberik.io
+  resources:
+  - releasepromotions/status
+  verbs:
+  - get
+  - patch
+  - update

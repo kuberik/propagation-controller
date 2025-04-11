@@ -1,0 +1,9 @@
+apiVersion: promotion.kuberik.io/v1alpha1
+kind: ReleasePromotion
+metadata:
+  labels:
+    app.kubernetes.io/name: propagation-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: releasepromotion-sample
+spec:
+  # TODO(user): Add fields here
