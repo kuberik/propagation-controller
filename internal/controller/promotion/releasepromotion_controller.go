@@ -62,7 +62,7 @@ func (r *ReleasePromotionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 
-	releases, err := crane.ListTags(releasePromotion.Spec.ReleasesRepository)
+	releases, err := crane.ListTags(releasePromotion.Spec.ReleasesRepository.URL)
 	if err != nil {
 		logf.FromContext(ctx).Error(err, "Failed to list tags from releases repository")
 		changed := meta.SetStatusCondition(&releasePromotion.Status.Conditions, metav1.Condition{
@@ -80,8 +80,8 @@ func (r *ReleasePromotionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if releasePromotion.Spec.Protocol == "oci" {
 		err = crane.Copy(
-			fmt.Sprintf("%s:%s", releasePromotion.Spec.ReleasesRepository, releases[0]),
-			fmt.Sprintf("%s:latest", releasePromotion.Spec.TargetRepository),
+			fmt.Sprintf("%s:%s", releasePromotion.Spec.ReleasesRepository.URL, releases[0]),
+			fmt.Sprintf("%s:latest", releasePromotion.Spec.TargetRepository.URL),
 		)
 		if err != nil {
 			logf.FromContext(ctx).Error(err, "Failed to promote artifact from releases repository to target repository")

@@ -74,9 +74,13 @@ var _ = Describe("ReleasePromotion Controller", func() {
 						Namespace: "default",
 					},
 					Spec: promotionv1alpha1.ReleasePromotionSpec{
-						Protocol:           "oci",
-						ReleasesRepository: releasesRepository,
-						TargetRepository:   targetRepository,
+						Protocol: "oci",
+						ReleasesRepository: promotionv1alpha1.Repository{
+							URL: releasesRepository,
+						},
+						TargetRepository: promotionv1alpha1.Repository{
+							URL: targetRepository,
+						},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())

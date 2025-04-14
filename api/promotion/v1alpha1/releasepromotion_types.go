@@ -34,14 +34,21 @@ type ReleasePromotionSpec struct {
 	// ReleasesRepository specifies the path to the releases repository
 	// +kubebuilder:validation:Required
 	// +required
-	ReleasesRepository string `json:"releasesRepository,omitempty"`
+	ReleasesRepository Repository `json:"releasesRepository,omitempty"`
 
 	// TargetRepository specifies the path where releases should be promoted to
 	// +kubebuilder:validation:Required
 	// +required
-	TargetRepository string `json:"targetRepository,omitempty"`
+	TargetRepository Repository `json:"targetRepository,omitempty"`
+}
 
-	// Auth contains reference to the secret with authentication credentials
+type Repository struct {
+	// The URL of the repository
+	// +kubebuilder:validation:Required
+	// +required
+	URL string `json:"url,omitempty"`
+
+	// The secret name containing the authentication credentials
 	// +optional
 	Auth *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 }
